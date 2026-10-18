@@ -9,7 +9,7 @@
     {
       "id": "1",
       "title": "Scale in place",
-      "teach": "Scaling changes only `.spec.replicas` — it does **not** touch the pod template, so no rollout happens. Never delete+recreate just to change replica count.\n\n- `kubectl scale deployment/<name> --replicas=N` — the fast path.\n- `kubectl scale deployment/<name> --current-replicas=2 --replicas=5` — conditional (only if currently 2).\n- `kubectl patch deployment <name> -p '{\"spec\":{\"replicas\":5}}'` or `kubectl edit` — declarative edits.\n\n**Gotchas:** an **HPA** targeting the Deployment overrides manual `scale` within seconds; `readyReplicas` lagging `replicas` just means pods are still coming up; scaling to 0 parks a workload without deleting it.",
+      "teach": "`kubectl scale deployment/<name> --replicas=N` changes only `.spec.replicas` — it doesn't touch the pod template, so no rollout happens. Never delete+recreate just to change replica count.\n\n**Gotcha:** an **HPA** targeting the Deployment overrides a manual `scale` within seconds.",
       "prompt": "Deployment `frontend` in `deploy-learn` exists with 2 replicas. Scale it **in place** to **4**.\n\nTarget: `frontend` has 4 ready replicas (and you did not delete it).",
       "hint": "`kubectl -n deploy-learn scale deployment/frontend --replicas=4`.",
       "solution": "kubectl -n deploy-learn scale deployment/frontend --replicas=4\nkubectl -n deploy-learn get deploy frontend",
@@ -19,7 +19,7 @@
     {
       "id": "2",
       "title": "Rolling image update",
-      "teach": "Changing the pod template (the image) triggers a **rolling update** — a new ReplicaSet scales up while the old scales down. Do it in place; don't recreate.\n\n- `kubectl set image deployment/<name> <container>=<newimg>` — the targeted way. **Check the container name first** (`kubectl get deploy <name> -o jsonpath='{.spec.template.spec.containers[0].name}'`) — it isn't always the deployment name.\n- `kubectl edit`, `kubectl patch`, or re-`apply` an edited manifest also roll it.\n- `kubectl rollout status deployment/<name>` to watch.\n\n**Gotchas:** a rollout only happens if `.spec.template` actually changes; the old ReplicaSet is kept (scaled to 0) for rollback — that history is your undo button.",
+      "teach": "`kubectl set image deployment/<name> <container>=<newimg>` changes the pod template, triggering a **rolling update** (new ReplicaSet scales up while the old scales down). Do it in place; watch with `kubectl rollout status`.\n\n**Gotcha:** the container name isn't always the deployment name — check it first with `kubectl get deploy <name> -o jsonpath='{.spec.template.spec.containers[0].name}'`.",
       "prompt": "Deployment `api` in `deploy-learn` runs `nginx:1.25` (container named `api`). Perform a rolling update to `nginx:1.26` in place.\n\nTarget: the update to `nginx:1.26` is recorded in `api`'s ReplicaSet history (this evidence survives the rollback in the next step).",
       "hint": "`kubectl -n deploy-learn set image deployment/api api=nginx:1.26`, then `kubectl -n deploy-learn rollout status deployment/api`.",
       "solution": "kubectl -n deploy-learn set image deployment/api api=nginx:1.26\nkubectl -n deploy-learn rollout status deployment/api",
@@ -28,7 +28,7 @@
     {
       "id": "3",
       "title": "Roll back a bad release",
-      "teach": "`kubectl rollout undo` reverts the pod template to a previous revision — in place, no delete.\n\n- `kubectl rollout history deployment/<name>` lists revisions; `--revision=N` shows one.\n- `kubectl rollout undo deployment/<name>` → previous revision; `--to-revision=N` → a specific one.\n\n**Gotchas:** an undo is itself a **new revision** (it doesn't delete the bad one); it restores the **whole** pod template of that revision (image, env, resources…), not just the image — so roll back *before* layering on other template edits; you can only reach revisions still kept by `revisionHistoryLimit` (default 10).",
+      "teach": "`kubectl rollout undo deployment/<name>` reverts the pod template to the previous revision in place (use `--to-revision=N` for a specific one). List revisions with `kubectl rollout history deployment/<name>`.\n\n**Gotcha:** undo restores the **whole** pod template of that revision (image, env, resources…), not just the image — so roll back *before* layering on other template edits.",
       "prompt": "`nginx:1.26` misbehaves. Roll `api` back so its image returns to `nginx:1.25`.\n\nTarget: `api`'s current image is `nginx:1.25` again and the rollout is complete (3/3).",
       "hint": "`kubectl -n deploy-learn rollout undo deployment/api`, then `rollout status`.",
       "solution": "kubectl -n deploy-learn rollout undo deployment/api\nkubectl -n deploy-learn rollout status deployment/api",
@@ -37,7 +37,7 @@
     {
       "id": "4",
       "title": "Set resources in place",
-      "teach": "`kubectl set resources` edits requests/limits on a live controller's template (triggering a rollout) — no need to hand-edit YAML or recreate.\n\n- `kubectl set resources deployment/<name> --requests=cpu=100m,memory=128Mi --limits=cpu=200m,memory=256Mi`.\n- Target a specific container with `-c <name>` when there are several.\n- `kubectl edit` / `kubectl patch` do the same declaratively.\n\n**Gotchas:** `requests` drive scheduling, `limits` cap usage (memory over limit → OOMKilled); setting requests == limits for cpu+mem makes the pod **Guaranteed** QoS; units are exact (`100m`, `128Mi`).",
+      "teach": "`kubectl set resources deployment/<name> --requests=cpu=100m,memory=128Mi --limits=cpu=200m,memory=256Mi` edits requests/limits on a live template in place (triggering a rollout) — no hand-editing YAML.\n\n**Gotcha:** units are exact — `100m` cpu, `128Mi` memory; a typo or wrong unit fails the match.",
       "prompt": "On Deployment `cache` in `deploy-learn`, set container resources **in place**: requests `cpu=100m, memory=128Mi`; limits `cpu=200m, memory=256Mi`.\n\nTarget: `cache`'s container has exactly those requests and limits.",
       "hint": "`kubectl -n deploy-learn set resources deployment/cache --requests=cpu=100m,memory=128Mi --limits=cpu=200m,memory=256Mi`.",
       "solution": "kubectl -n deploy-learn set resources deployment/cache --requests=cpu=100m,memory=128Mi --limits=cpu=200m,memory=256Mi\nkubectl -n deploy-learn get deploy cache -o jsonpath='{.spec.template.spec.containers[0].resources}'",
@@ -46,7 +46,7 @@
     {
       "id": "5",
       "title": "Inject config from a ConfigMap",
-      "teach": "`kubectl set env` injects environment config into a live controller in place.\n\n- `kubectl set env deployment/<name> KEY=val` — one literal.\n- `kubectl set env deployment/<name> --from=configmap/<cm>` — adds one env var **per key** of the ConfigMap (each as a `configMapKeyRef`).\n- `kubectl set env deployment/<name> --from=secret/<s>` — same for a Secret.\n- `kubectl set env deployment/<name> --list` — show current env; `KEY-` removes one.\n\n**Gotchas:** `--from=configmap` wires individual `configMapKeyRef` env vars (vs `envFrom` bulk, which you'd hand-write); env from a ConfigMap is read **once at pod start** — changing the ConfigMap later needs a `rollout restart` (step 8) to take effect.",
+      "teach": "`kubectl set env deployment/<name> --from=configmap/<cm>` injects one env var **per key** of the ConfigMap in place (each wired as a `configMapKeyRef`). Verify with `kubectl set env deployment/<name> --list`.\n\n**Gotcha:** `--from` adds individual `configMapKeyRef` vars, not a bulk `envFrom` block — the keys appear as named env vars.",
       "prompt": "ConfigMap `worker-cfg` (keys `LOG_LEVEL`, `REGION`) exists in `deploy-learn`. Inject **all its keys** as environment variables into the `worker` Deployment, in place, using `kubectl set env --from`.\n\nTarget: `worker`'s container has env `LOG_LEVEL` and `REGION`, each sourced from ConfigMap `worker-cfg`.",
       "hint": "`kubectl -n deploy-learn set env deployment/worker --from=configmap/worker-cfg`, then `kubectl -n deploy-learn set env deployment/worker --list`.",
       "solution": "kubectl -n deploy-learn set env deployment/worker --from=configmap/worker-cfg\nkubectl -n deploy-learn set env deployment/worker --list",
@@ -55,7 +55,7 @@
     {
       "id": "6",
       "title": "Change the update strategy",
-      "teach": "`.spec.strategy` controls how pods are replaced on a template change — change it in place.\n\n- `RollingUpdate` (default): `maxSurge` / `maxUnavailable` (number or %).\n- `Recreate`: kill all old pods, then create new ones (brief downtime, never two versions at once).\n- `kubectl patch deployment <name> -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'` or `kubectl edit`.\n\n**Gotchas:** `Recreate` must **not** carry a `rollingUpdate` block — set it `null` or the API rejects it; `maxSurge` and `maxUnavailable` can't both be 0; changing the strategy alone does not trigger a rollout.",
+      "teach": "`.spec.strategy.type` controls how pods are replaced on a template change. `Recreate` kills all old pods then creates new ones (brief downtime, never two versions at once); patch it in place with `kubectl patch deployment <name> -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'`.\n\n**Gotcha:** `Recreate` must **not** carry a `rollingUpdate` block — set it `null` or the API rejects the change.",
       "prompt": "Change Deployment `cache`'s update strategy to **Recreate**, in place.\n\nTarget: `cache`'s `.spec.strategy.type` is `Recreate`.",
       "hint": "`kubectl -n deploy-learn patch deployment cache -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'`.",
       "solution": "kubectl -n deploy-learn patch deployment cache -p '{\"spec\":{\"strategy\":{\"type\":\"Recreate\",\"rollingUpdate\":null}}}'\nkubectl -n deploy-learn get deploy cache -o jsonpath='{.spec.strategy.type}'",
@@ -64,7 +64,7 @@
     {
       "id": "7",
       "title": "Targeted change with a JSON patch",
-      "teach": "`kubectl patch` has **three** patch types — know when each applies:\n- **strategic** (default for native kinds): merges by schema, so list items merge by key (e.g. containers by name).\n- **merge** (`--type=merge`, RFC 7386): replaces whole objects/lists — a JSON merge patch.\n- **json** (`--type=json`, RFC 6902): **op-based** (`add`/`replace`/`remove`) targeting an exact **path**, e.g. `/spec/template/spec/containers/0/imagePullPolicy` — the precise scalpel for one field or a list index.\n\nExample: `kubectl patch deploy x --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"}]'`.\n\n**Gotchas:** JSON-patch paths are 0-indexed and must exist (use `add` to create); strategic merge can't reorder/replace a list element the way a JSON patch index can; quote the JSON carefully in the shell.",
+      "teach": "A **JSON patch** (`kubectl patch --type=json`, RFC 6902) is op-based (`add`/`replace`/`remove`) targeting an exact **path** — the scalpel for one field or list index: `--type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"}]'`.\n\n**Gotcha:** paths are 0-indexed and must already exist — use `op: add` if the field isn't set yet, or `replace` fails.",
       "prompt": "Using a **JSON patch** (`kubectl patch --type=json`), set the `imagePullPolicy` of the container in Deployment `frontend` to `IfNotPresent`, in place.\n\nTarget: `frontend`'s container `imagePullPolicy` is `IfNotPresent`.",
       "hint": "`kubectl -n deploy-learn patch deployment frontend --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"}]'` (use `add` instead of `replace` if the field isn't set yet).",
       "solution": "kubectl -n deploy-learn patch deployment frontend --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/imagePullPolicy\",\"value\":\"IfNotPresent\"}]'\nkubectl -n deploy-learn get deploy frontend -o jsonpath='{.spec.template.spec.containers[0].imagePullPolicy}'",
@@ -73,7 +73,7 @@
     {
       "id": "8",
       "title": "Reload config with rollout restart",
-      "teach": "`kubectl rollout restart` rolls a Deployment's pods **with no spec change** — the clean way to pick up a changed ConfigMap/Secret (env is read once at pod start, so editing the config alone doesn't update running pods).\n\n- `kubectl rollout restart deployment/<name>` — stamps `spec.template.metadata.annotations[\"kubectl.kubernetes.io/restartedAt\"]` with a timestamp, which changes the template and triggers a fresh rollout.\n- `kubectl rollout status` to confirm; `kubectl rollout pause`/`resume` batch several edits into one rollout.\n\n**Gotchas:** restart ≠ delete — the controller rolls new pods gracefully; a mounted ConfigMap **volume** updates live (no restart needed), but env/`envFrom` from a ConfigMap does not.",
+      "teach": "`kubectl rollout restart deployment/<name>` rolls the pods with no real spec change — it stamps a `kubectl.kubernetes.io/restartedAt` timestamp annotation on the template, triggering a fresh rollout. This is the clean way to pick up a changed ConfigMap/Secret used via env.\n\n**Gotcha:** restart ≠ delete — the controller rolls new pods in gracefully rather than killing everything at once.",
       "prompt": "Roll the `worker` Deployment's pods in place (no spec change) so they'd pick up a changed ConfigMap — using `rollout restart`.\n\nTarget: `worker`'s pod template carries the `kubectl.kubernetes.io/restartedAt` annotation.",
       "hint": "`kubectl -n deploy-learn rollout restart deployment/worker`, then `kubectl -n deploy-learn rollout status deployment/worker`.",
       "solution": "kubectl -n deploy-learn rollout restart deployment/worker\nkubectl -n deploy-learn rollout status deployment/worker",

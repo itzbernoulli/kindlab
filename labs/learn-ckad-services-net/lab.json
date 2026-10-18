@@ -1,91 +1,139 @@
 {
   "id": "learn-ckad-services-net",
-  "name": "Learn: Services & Networking",
+  "name": "Learn: Services & Networking (hardened)",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Services & Networking (20%). Goal: expose workloads with ClusterIP and NodePort Services, route HTTP with an Ingress host/path rule, lock traffic down with a default-deny NetworkPolicy, and debug a Service that has no endpoints — the connectivity tasks the exam leans on.",
-  "description": "Learn how traffic reaches your pods, step by step — ClusterIP and NodePort Services, an Ingress host/path rule, a default-deny NetworkPolicy, and how to debug a Service whose selector doesn't match its pods. Every step is graded on the full correct result.",
+  "objective": "CKAD › Services & Networking. Drill every Service shape and the Ingress/endpoints surface: ClusterIP with named targetPort, NodePort on a pinned port, headless, ExternalName, sessionAffinity, Ingress (pathType/ingressClassName/TLS), a selector-less Service + manual EndpointSlice, and a no-hint 'no endpoints' diagnose-fix. Graded exactly.",
+  "description": "Eight strict Service/Ingress practicals against a pre-seeded web Deployment. Each Check shows which requirements you met and why any failed.",
   "questions": [
     {
       "id": "1",
-      "title": "ClusterIP Service with endpoints",
-      "teach": "A **Service** gives a stable virtual IP + DNS name in front of a set of pods. A Service finds its pods with a **selector** (label match); for each matching, *ready* pod it creates an endpoint. DNS name is `<svc>.<ns>.svc.cluster.local`.\n\n**Ports** (keep these straight):\n- `port` — what the Service itself listens on (cluster-internal).\n- `targetPort` — the container port traffic is forwarded to (may be a name, not just a number).\n- `nodePort` — only for NodePort/LoadBalancer, the port opened on every node.\n\n**Service types:**\n- **ClusterIP** (default) — internal-only virtual IP.\n- **NodePort** — ClusterIP + a port on every node; also has a ClusterIP.\n- **LoadBalancer** — NodePort + an external LB; also has a ClusterIP + NodePort.\n- **ExternalName** — no selector/IP, returns a CNAME to an external DNS name.\n- **Headless** (`clusterIP: None`) — no virtual IP; DNS returns pod IPs directly (StatefulSets).\n\nOther knobs: `sessionAffinity: ClientIP` (sticky by client IP); a **selector-less** Service lets you manage **EndpointSlices** (or the legacy Endpoints object) by hand to point at external IPs.\n\n**GOTCHAS:**\n- Empty `kubectl get endpoints <svc>` = selector matches no ready pod → dead end (selector typo, wrong labels, or pods not Ready).\n- `targetPort` defaults to `port` if omitted — easy to forget when they differ.\n- `kubectl expose` copies the workload's selector for you but can't pin a `nodePort` or set a headless clusterIP.",
-      "prompt": "A Deployment `web` (3 replicas, label `app=web`, container port 8080) is already running in namespace `svcnet-learn`. Create a ClusterIP Service named `web` that selects `app=web`, with `port` 80 forwarding to `targetPort` 8080.\n\nTarget: `kubectl -n svcnet-learn get endpoints web` lists 3 endpoint addresses.",
-      "hint": "`kubectl -n svcnet-learn expose deployment web --name=web --port=80 --target-port=8080` — expose copies the Deployment's `app=web` selector for you. Check with `kubectl -n svcnet-learn get endpoints web`.",
-      "solution": "kubectl -n svcnet-learn expose deployment web --name=web --port=80 --target-port=8080\nkubectl -n svcnet-learn get svc web\nkubectl -n svcnet-learn get endpoints web   # should list 3 addresses",
+      "title": "ClusterIP with a named targetPort",
+      "teach": "A Service fronts label-selected pods with a stable IP/DNS. `port` is what clients hit; `targetPort` is the container port — and it can be a **named** port instead of a number (more robust). Default type is ClusterIP.\n\n**Gotcha:** no matching *ready* pods → no endpoints.",
+      "prompt": "A Deployment `web` (label `app=web`, container port **named `http`** = 80) runs in `svcnet-learn`. Create a **ClusterIP** Service `web-svc` with `port: 80` whose `targetPort` is the **named** port `http`, selecting `app=web`.\n\nTarget: `web-svc` ClusterIP, port 80 → targetPort `http`, selector app=web.",
+      "hint": "`targetPort: http` (the name, not 80). `kubectl -n svcnet-learn expose deployment web --name web-svc --port 80 --target-port http`.",
+      "solution": "kubectl -n svcnet-learn expose deployment web --name web-svc --port 80 --target-port http\nkubectl -n svcnet-learn get endpoints web-svc",
+      "setup": "setup/q0_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "Service web is ClusterIP, port 80 -> targetPort 8080, with 3 endpoints",
-          "script": "validate/q1_s1.sh",
-          "weightage": 20
+          "description": "web-svc ClusterIP port 80 -> targetPort 'http', selector app=web",
+          "script": "validate/c1.sh",
+          "weightage": 14
         }
       ]
     },
     {
       "id": "2",
-      "title": "NodePort Service on a pinned port",
-      "teach": "A **NodePort** Service builds on ClusterIP: it additionally opens the same port on **every node**, so `<nodeIP>:<nodePort>` reaches the pods. A NodePort therefore *also* has a ClusterIP (and a LoadBalancer has both a ClusterIP and a NodePort).\n\nThe three ports in play:\n- `port` — the ClusterIP port (internal).\n- `targetPort` — the container port.\n- `nodePort` — the port on each node, **must be 30000–32767**.\n\n**Ways to create it:**\n- Manifest with `type: NodePort` and `nodePort:` under the port entry (the only way to *pin* the value cleanly).\n- `kubectl expose ... --type=NodePort` (Kubernetes auto-assigns the nodePort) then `patch`/`edit` to pin it.\n\n**GOTCHAS:**\n- A `nodePort` outside 30000–32767 is rejected.\n- If you don't set `nodePort`, Kubernetes picks a random one — the exam usually wants a *specific* value, so pin it.\n- `kubectl expose` alone can't pin a `nodePort`; you must patch/edit or write YAML.\n- Still needs a matching selector + ready pods, or there are no endpoints behind the open port.",
-      "prompt": "In `svcnet-learn`, create a NodePort Service named `web-np` selecting `app=web`, with `port` 80, `targetPort` 8080, and `nodePort` pinned to **30080**.\n\nTarget: `kubectl -n svcnet-learn get svc web-np` shows type NodePort with node port 30080.",
-      "hint": "Easiest is a manifest: `type: NodePort`, and under `ports` set `port: 80`, `targetPort: 8080`, `nodePort: 30080`. Or `kubectl expose deployment web --name=web-np --type=NodePort --port=80 --target-port=8080` then `kubectl -n svcnet-learn patch svc web-np -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":8080,\"nodePort\":30080}]}}'`.",
-      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata:\n  name: web-np\n  namespace: svcnet-learn\nspec:\n  type: NodePort\n  selector:\n    app: web\n  ports:\n  - port: 80\n    targetPort: 8080\n    nodePort: 30080\nEOF\nkubectl -n svcnet-learn get svc web-np",
+      "title": "NodePort on a pinned port",
+      "teach": "A **NodePort** opens the same port (30000–32767) on every node and forwards to the Service — it still has a ClusterIP underneath. Set `type: NodePort` and pin `nodePort`.\n\n**Gotcha:** `nodePort` must be in 30000–32767.",
+      "prompt": "Create a **NodePort** Service `web-np` for `app=web`: `port: 80`, `targetPort: 80`, pinned `nodePort: 30080`.\n\nTarget: `web-np` type NodePort, port 80 → 80, nodePort 30080, selector app=web.",
+      "hint": "`kubectl -n svcnet-learn create service nodeport web-np --tcp=80:80 --node-port=30080` then set its selector to app=web (or edit), OR write YAML with `type: NodePort` and `nodePort: 30080`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-np, namespace: svcnet-learn }\nspec:\n  type: NodePort\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80, nodePort: 30080 } ]\nYAML",
       "verification": [
         {
           "id": "1",
-          "description": "Service web-np is NodePort with nodePort 30080 -> targetPort 8080 and has endpoints",
-          "script": "validate/q2_s1.sh",
-          "weightage": 20
+          "description": "web-np NodePort port 80 -> 80, nodePort 30080, selector app=web",
+          "script": "validate/c2.sh",
+          "weightage": 13
         }
       ]
     },
     {
       "id": "3",
-      "title": "Ingress host + path rule",
-      "teach": "An **Ingress** provides HTTP(S) routing from outside — matching on **host** and **path** and forwarding to a backend Service. An Ingress rule names the backend Service and the Service **port** (the Service's `port`, *not* the pod's targetPort).\n\n**pathType** (required on each path):\n- `Prefix` — matches the path and everything under it (`/` matches all).\n- `Exact` — matches the exact path only.\n- `ImplementationSpecific` — delegates matching to the controller.\n\n**Other pieces:**\n- `ingressClassName` — which controller handles it (replaces the old `kubernetes.io/ingress.class` annotation).\n- `defaultBackend` — catches requests that match no rule.\n- **TLS** — `spec.tls[]` references a `kubernetes.io/tls` Secret (`tls.crt`/`tls.key`) per host.\n- Multiple hosts and multiple paths per host are allowed.\n\n**GOTCHAS:**\n- An Ingress does nothing without a running **ingress controller** — the object can exist and route nothing. (No controller runs in this bench, so grading checks the Ingress object's rule — host, path, backend service + port — not live HTTP.)\n- Backend port = the **Service** port (name or number), not the container targetPort.\n- `kubectl create ingress --rule=\"host/path*=svc:port\"` uses `*` to mean `pathType: Prefix`; omit the `*` for `Exact`.",
-      "prompt": "In `svcnet-learn`, create an Ingress named `web-ing` with one rule: host `web.example.com`, path `/` (pathType `Prefix`), routing to Service `web` on port 80.\n\nTarget: `kubectl -n svcnet-learn get ingress web-ing` exists with that host/path/backend.",
-      "hint": "`kubectl -n svcnet-learn create ingress web-ing --rule=\"web.example.com/*=web:80\"` creates host web.example.com, pathType Prefix, backend web:80 in one line.",
-      "solution": "kubectl -n svcnet-learn create ingress web-ing --rule=\"web.example.com/*=web:80\"\nkubectl -n svcnet-learn get ingress web-ing -o yaml",
+      "title": "Headless Service",
+      "teach": "A **headless** Service sets `clusterIP: None` — no virtual IP; DNS returns the pod IPs directly (one A record per endpoint). Used for StatefulSets / client-side load-balancing.\n\n**Gotcha:** `clusterIP: None` is the single field that makes it headless.",
+      "prompt": "Create a **headless** Service `web-hl` for `app=web` on `port: 80` (`clusterIP: None`).\n\nTarget: `web-hl` has `clusterIP: None` and selector app=web.",
+      "hint": "Set `clusterIP: None` in the Service spec.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-hl, namespace: svcnet-learn }\nspec:\n  clusterIP: None\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\nYAML",
       "verification": [
         {
           "id": "1",
-          "description": "Ingress web-ing routes host web.example.com path / to service web:80",
-          "script": "validate/q3_s1.sh",
-          "weightage": 20
+          "description": "web-hl headless (clusterIP: None), selector app=web",
+          "script": "validate/c3.sh",
+          "weightage": 12
         }
       ]
     },
     {
       "id": "4",
-      "title": "Default-deny ingress NetworkPolicy",
-      "teach": "By default every pod is **non-isolated** — it accepts traffic from everywhere. A **NetworkPolicy** makes the *selected* pods isolated for the listed `policyTypes`. Only enforced by a CNI that supports it.\n\n**Structure:**\n- `podSelector: {}` — empty = **all pods** in the namespace; a label selector = just those pods.\n- `policyTypes: [Ingress]`, `[Egress]`, or both — you only isolate the directions you list.\n- `ingress`/`egress` rules with `from`/`to` peers + `ports`.\n\n**Default-deny patterns:** list the direction in `policyTypes` with **no** matching rules → nothing allowed that way. (This step: `podSelector: {}` + `policyTypes: [Ingress]` + no `ingress:` key.)\n\n**Peer selectors (the classic trap):**\n- `podSelector` + `namespaceSelector` in the **same** `from`/`to` element = **AND** (pods matching both).\n- The same two in **separate** list elements = **OR**.\n- `ipBlock` with `cidr` (and optional `except`) for IP ranges.\n\n**GOTCHAS:**\n- Policies are **additive** and allow-only — there is no \"deny\" rule; you deny by *not* allowing.\n- A default-deny **egress** policy blocks **DNS** (kube-system, port 53 **UDP and TCP**) — add an egress allow for DNS or everything breaks.\n- `policyTypes` controls which directions are isolated; always list every direction you intend to restrict (don't rely on implicit behaviour).\n- NetworkPolicies are namespaced and never span namespaces except via `namespaceSelector`.",
-      "prompt": "In `svcnet-learn`, create a NetworkPolicy named `default-deny` that selects **all** pods in the namespace and denies **all ingress** traffic.\n\nTarget: `kubectl -n svcnet-learn get networkpolicy default-deny` exists with an empty podSelector, policyTypes `[Ingress]`, and no ingress rules.",
-      "hint": "Manifest with `spec.podSelector: {}`, `spec.policyTypes: [Ingress]`, and no `ingress:` key at all (an empty/absent rule list = deny all).",
-      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny\n  namespace: svcnet-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Ingress\nEOF\nkubectl -n svcnet-learn get networkpolicy default-deny -o yaml",
+      "title": "ExternalName Service",
+      "teach": "An **ExternalName** Service maps a cluster DNS name to an external one via a CNAME — no selector, no endpoints, pure DNS.\n\n**Gotcha:** `type: ExternalName` + `externalName`; there are no ports or selector.",
+      "prompt": "Create an **ExternalName** Service `db-ext` that points to `db.example.com`.\n\nTarget: `db-ext` type ExternalName, externalName `db.example.com`.",
+      "hint": "`kubectl -n svcnet-learn create service externalname db-ext --external-name db.example.com`.",
+      "solution": "kubectl -n svcnet-learn create service externalname db-ext --external-name db.example.com",
       "verification": [
         {
           "id": "1",
-          "description": "NetworkPolicy default-deny: empty podSelector, Ingress policyType, no ingress rules",
-          "script": "validate/q4_s1.sh",
-          "weightage": 20
+          "description": "db-ext type ExternalName -> db.example.com",
+          "script": "validate/c4.sh",
+          "weightage": 12
         }
       ]
     },
     {
       "id": "5",
-      "title": "Fix a Service with no endpoints",
-      "teach": "The #1 reason a Service doesn't work: its **selector doesn't match any pod labels**, so `kubectl get endpoints` (or `get endpointslices`) is empty and requests go nowhere.\n\n**Debug flow:**\n1. `kubectl get endpoints <svc>` — empty?\n2. Compare `kubectl get svc <svc> -o jsonpath='{.spec.selector}'` with `kubectl get pods --show-labels`.\n3. Fix the mismatch: `kubectl patch`/`edit` the Service selector, or relabel the pods.\n\n**But \"no endpoints\" has other causes too — check all of them:**\n- Pods exist and match, but are **not Ready** (failing readiness probe) → excluded from endpoints.\n- `targetPort` names a container port the pod doesn't expose.\n- Wrong namespace (Service and pods in different namespaces).\n- A **selector-less** Service that's missing its manual EndpointSlice/Endpoints.\n\n**GOTCHAS:**\n- Only **Ready** pods become endpoints — a crash-looping or unready pod silently disappears from the Service.\n- Editing `spec.selector` is live and immediate; no pod restart needed.\n- `kubectl describe svc <svc>` shows the resolved Endpoints line — fastest sanity check.",
-      "prompt": "A Service `api` in `svcnet-learn` has **no endpoints** — its selector is `app=api-WRONG` but the backing pods (Deployment `api`) are labelled `app=api`. Fix the Service's selector so it matches, and endpoints populate.\n\nTarget: `kubectl -n svcnet-learn get endpoints api` lists at least 1 address.",
-      "hint": "`kubectl -n svcnet-learn get pods --show-labels` to see the real label (`app=api`), then `kubectl -n svcnet-learn patch svc api -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'`. Re-check endpoints.",
-      "solution": "kubectl -n svcnet-learn get endpoints api          # empty\nkubectl -n svcnet-learn get pods --show-labels     # app=api\nkubectl -n svcnet-learn patch svc api -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'\nkubectl -n svcnet-learn get endpoints api          # now populated",
+      "title": "Session affinity",
+      "teach": "`sessionAffinity: ClientIP` pins each client IP to the same pod (sticky sessions), tuned by `sessionAffinityConfig.clientIP.timeoutSeconds`.\n\n**Gotcha:** the only options are `ClientIP` or `None`.",
+      "prompt": "Create a ClusterIP Service `web-sa` for `app=web` on port 80 with **ClientIP session affinity** and a timeout of **3600** seconds.\n\nTarget: `web-sa` has `sessionAffinity: ClientIP` and `sessionAffinityConfig.clientIP.timeoutSeconds: 3600`.",
+      "hint": "`spec.sessionAffinity: ClientIP` and `spec.sessionAffinityConfig.clientIP.timeoutSeconds: 3600`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-sa, namespace: svcnet-learn }\nspec:\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\n  sessionAffinity: ClientIP\n  sessionAffinityConfig: { clientIP: { timeoutSeconds: 3600 } }\nYAML",
       "verification": [
         {
           "id": "1",
-          "description": "Service api selector fixed to app=api and endpoints now populate",
-          "script": "validate/q5_s1.sh",
-          "weightage": 20
+          "description": "web-sa sessionAffinity ClientIP, timeout 3600",
+          "script": "validate/c5.sh",
+          "weightage": 12
         }
-      ],
-      "setup": "setup/q5_setup.sh"
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Ingress with pathType, class, and TLS",
+      "teach": "An **Ingress** routes external HTTP(S) to Services by host/path (needs a controller to actually serve). Each path needs a `pathType`; `ingressClassName` picks the controller; `tls` terminates HTTPS with a tls Secret.\n\n**Gotcha:** `pathType` is required on every path.",
+      "prompt": "Create an Ingress `web-ing` in `svcnet-learn`:\n- `ingressClassName: nginx`\n- host `myapp.local`, one path `/` with `pathType: Prefix` → Service `web-svc` port `80`\n- TLS for host `myapp.local` using secret `web-tls`\n\nTarget: `web-ing` has ingressClassName nginx, the Prefix `/` rule to web-svc:80, and a tls entry with secretName web-tls.",
+      "hint": "Set `spec.ingressClassName: nginx`, a rule with `pathType: Prefix` and `backend.service.name: web-svc` / `port.number: 80`, and `spec.tls: [{hosts: [myapp.local], secretName: web-tls}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: web-ing, namespace: svcnet-learn }\nspec:\n  ingressClassName: nginx\n  tls: [ { hosts: [ myapp.local ], secretName: web-tls } ]\n  rules:\n  - host: myapp.local\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend: { service: { name: web-svc, port: { number: 80 } } }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-ing: class nginx, Prefix / -> web-svc:80, TLS secret web-tls",
+          "script": "validate/c6.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Selector-less Service + manual EndpointSlice",
+      "teach": "A Service with **no selector** gets no automatic endpoints — you supply them with an **EndpointSlice** labelled `kubernetes.io/service-name: <svc>`. This fronts an external/hand-managed backend.\n\n**Gotcha:** that label is what attaches the slice to the Service.",
+      "prompt": "Create a selector-less ClusterIP Service `ext-svc` (port 80), and an **EndpointSlice** attaching it to a backend at `10.40.0.9:80`.\n\nTarget: `ext-svc` has no selector, and an EndpointSlice labelled `kubernetes.io/service-name=ext-svc` with endpoint address `10.40.0.9`.",
+      "hint": "Service with `ports` and NO `selector`. EndpointSlice (`discovery.k8s.io/v1`) with `metadata.labels.kubernetes.io/service-name: ext-svc`, `addressType: IPv4`, `endpoints: [{addresses: [10.40.0.9]}]`, `ports: [{port: 80}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: ext-svc, namespace: svcnet-learn }\nspec:\n  ports: [ { port: 80, targetPort: 80 } ]\n---\napiVersion: discovery.k8s.io/v1\nkind: EndpointSlice\nmetadata:\n  name: ext-svc-1\n  namespace: svcnet-learn\n  labels: { kubernetes.io/service-name: ext-svc }\naddressType: IPv4\nports: [ { name: \"\", port: 80 } ]\nendpoints: [ { addresses: [ \"10.40.0.9\" ] } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ext-svc selector-less + EndpointSlice (service-name label) with 10.40.0.9",
+          "script": "validate/c7.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose & fix: a Service with no endpoints",
+      "teach": "A Service with **no endpoints** but healthy pods almost always means a **selector mismatch** (a typo or wrong label). Compare the Service's `spec.selector` to the pod labels and fix it in place.\n\n**Gotcha:** endpoints come only from *ready* pods.",
+      "prompt": "Service `api-svc` in `svcnet-learn` has **no endpoints** even though Deployment `api` (label `app=api`) is running. Diagnose and fix it so the Service has endpoints. Don't delete it.\n\nTarget: `api-svc` has at least one endpoint address.",
+      "hint": "`kubectl -n svcnet-learn get endpoints api-svc` (empty) then `kubectl -n svcnet-learn get svc api-svc -o jsonpath='{.spec.selector}'` — the selector is wrong. Patch it to `app=api`: `kubectl -n svcnet-learn patch svc api-svc -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'`.",
+      "solution": "kubectl -n svcnet-learn patch svc api-svc -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'\nkubectl -n svcnet-learn get endpoints api-svc",
+      "verification": [
+        {
+          "id": "1",
+          "description": "api-svc now has endpoints (selector fixed to app=api)",
+          "script": "validate/c8.sh",
+          "weightage": 12
+        }
+      ]
     }
   ]
 }

@@ -1,15 +1,25 @@
 #!/bin/bash
-# Reset the learn environment to a clean, idempotent slate.
-kubectl delete namespace ckad-config --ignore-not-found --wait=false >/dev/null 2>&1
-# wait for the namespace to be fully gone so recreation is clean
-for i in $(seq 1 30); do kubectl get ns ckad-config >/dev/null 2>&1 || break; sleep 1; done
-kubectl create namespace ckad-config >/dev/null 2>&1
-# seed the ConfigMap used by step 1
-kubectl -n ckad-config create configmap app-cfg \
-  --from-literal=APP_COLOR=blue \
-  --from-literal=APP_MODE=prod >/dev/null 2>&1
-# seed the Secret used by step 2
-kubectl -n ckad-config create secret generic db-cred \
-  --from-literal=DB_USER=admin \
-  --from-literal=DB_PASS=s3cr3t >/dev/null 2>&1
-echo "ckad-config ready (configmap app-cfg, secret db-cred seeded)"
+# Seed ConfigMap + Secret the learner consumes, and a BROKEN pod for the diagnose-fix.
+NS=ckad-config
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
+kubectl -n "$NS" delete pod cfg-env cfg-envfrom cfg-vol sec-pod proj-pod brokencfg --ignore-not-found --force --grace-period=0 >/dev/null 2>&1
+kubectl -n "$NS" delete configmap app-config locked-config --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete secret app-secret --ignore-not-found >/dev/null 2>&1
+# app-config intentionally has NO GREETING key (that's the step-7 fault) and NO OPTIONAL_KEY
+kubectl -n "$NS" create configmap app-config --from-literal=APP_MODE=prod --from-literal=LOG_LEVEL=debug >/dev/null 2>&1
+kubectl -n "$NS" create secret generic app-secret --from-literal=API_KEY=xyz123 --from-literal=DB_PASS=s3cr3t >/dev/null 2>&1
+# broken pod: references a missing key GREETING -> CreateContainerConfigError until the learner adds it
+kubectl -n "$NS" apply -f - >/dev/null 2>&1 <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: { name: brokencfg, namespace: ckad-config }
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["sh","-c","echo $GREETING; sleep 3600"]
+    env:
+    - name: GREETING
+      valueFrom: { configMapKeyRef: { name: app-config, key: GREETING } }
+YAML
+echo "ckad-config ready: cm app-config(APP_MODE,LOG_LEVEL), secret app-secret(API_KEY,DB_PASS); broken pod 'brokencfg' seeded for step 7"

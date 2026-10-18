@@ -238,6 +238,7 @@ async function renderLearn(lab) {
           ${q.hint ? `<button class="btn-answers mini" onclick="window.tog(this,'💡 Hint','🙈 Hide hint')">💡 Hint</button><div class="hint" style="display:none">${marked.parse(q.hint)}</div>` : ''}
           ${q.solution ? `<button class="btn-answers mini" onclick="window.tog(this,'Reveal solution','🙈 Hide solution')">Reveal solution</button><div class="solution" style="display:none">${marked.parse('```bash\n' + q.solution + '\n```')}</div>` : ''}
         </div>
+        <div class="step-checks" id="checks-${q.id}"></div>
       </div>`;
     steps.appendChild(d);
   }
@@ -276,6 +277,13 @@ function updateLearnProgress(res) {
     if (dot) { dot.textContent = ok ? '✓' : '○'; dot.className = 'step-dot' + (ok ? ' ok' : ''); }
     const step = document.getElementById('step-' + q.id);
     if (step) step.classList.toggle('done', ok);
+    const cc = document.getElementById('checks-' + q.id);
+    if (cc && q.checks) {
+      const head = q.checks.length > 1 ? `<div class="chk-score">${q.score}/${q.possible} marks — ${q.checks.filter(c => c.pass).length}/${q.checks.length} requirements met</div>` : '';
+      cc.innerHTML = head + q.checks.map(c =>
+        `<div class="chk ${c.pass ? 'ok' : 'bad'}"><span class="chk-mark">${c.pass ? '✓' : '✗'}</span><span class="chk-desc">${esc(c.description)}${!c.pass && c.reason ? `<div class="chk-reason">${esc(c.reason)}</div>` : ''}</span></div>`
+      ).join('');
+    }
   }
   const pct = Math.round(done / res.results.length * 100);
   const all = done === res.results.length;

@@ -18,6 +18,11 @@ printf 'hello from myapp\n' > "$DIR/hello.txt"
 # Clean slate: drop prior images + archive so steps 1-3 are not trivially pre-satisfied.
 rm -f "$DIR/myapp-2.0.tgz"
 docker rmi -f myapp:1.0 myapp:2.0 "localhost:${PORT}/myapp:2.0" >/dev/null 2>&1 || true
+docker rmi -f committed:1.0 >/dev/null 2>&1 || true
+rm -f "$DIR/myapp-oci.tar"
+# seed a running container for the commit step
+docker rm -f appbox >/dev/null 2>&1 || true
+docker run -d --name appbox busybox:1.36 sh -c 'sleep 3600' >/dev/null 2>&1 || true
 
 # Fresh, empty registry (so step 5's catalog check is meaningful).
 docker rm -f "$REG" >/dev/null 2>&1 || true

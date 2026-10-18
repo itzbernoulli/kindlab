@@ -1,10 +1,10 @@
 {
   "id": "learn-ckad-images",
-  "name": "Learn: Build, Save & Push Images",
+  "name": "Learn: Build, Commit, OCI, Save & Push Images",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Application Design and Build (20%). Goal: build a container image from a Dockerfile, modify/tag it, save it to a tarball, make it available to the cluster, and push it to a registry — the image-lifecycle tasks the exam expects.",
-  "description": "Build an image on the host, label it, export it as a .tgz, load it into the kind cluster and run it, then push it to a local registry. Everything runs against your host Docker + the kindlab cluster.",
+  "objective": "CKAD › Application Design and Build (20%) + supply chain. The full image lifecycle: build from a Dockerfile, snapshot a running container with commit, modify/tag, save to a .tgz, export to the OCI format, load into the cluster and run it, and push to a registry.",
+  "description": "Seven practicals across the whole image toolchain — Dockerfile build, docker commit, OCI-format export, save/load, and registry push — graded against your host Docker + the kindlab cluster.",
   "questions": [
     {
       "id": "1",
@@ -14,43 +14,61 @@
       "hint": "`docker build -t myapp:1.0 /tmp/kindlab-img` — then `docker image inspect myapp:1.0` to confirm it exists.",
       "solution": "docker build -t myapp:1.0 /tmp/kindlab-img\ndocker image inspect myapp:1.0 --format '{{ index .Config.Labels \"stage\" }}'   # base",
       "setup": "setup/q0_setup.sh",
-      "verification": [ { "id": "1", "description": "image myapp:1.0 built from the provided Dockerfile", "script": "validate/q1_s1.sh", "weightage": 20 } ]
+      "verification": [ { "id": "1", "description": "image myapp:1.0 built from the provided Dockerfile", "script": "validate/q1_s1.sh", "weightage": 15 } ]
     },
     {
       "id": "2",
+      "title": "Commit a running container into an image",
+      "teach": "`docker commit` snapshots a **running (or stopped) container's** current filesystem into a new image — a quick way to capture state or turn an ad-hoc container into a reusable image.\n\n- `docker commit <container> name:tag` — create an image from the container's writable layer.\n- `docker commit --change 'CMD [\"...\"]' --change 'ENV K=V' -m 'msg' -a 'you' <container> name:tag` — set metadata while committing.\n- `docker commit --pause=false <container> …` — don't pause the container during commit.\n\n**commit vs build:** commit is a one-off **snapshot** — not reproducible, no record of *how* it was made. A **Dockerfile build** is reproducible and reviewable. Use commit for capture/debug; use builds for anything real.\n\n**Gotchas:** commit captures only the container's writable layer on top of its base image; it does **not** include mounted volumes; the result keeps the base image's `CMD`/`ENV` unless you `--change` them.",
+      "prompt": "A container named `appbox` (busybox) is already running. Snapshot its current state into an image named `committed:1.0` using `docker commit`.\n\nTarget: `docker image inspect committed:1.0` succeeds.",
+      "hint": "`docker commit appbox committed:1.0`, then `docker image inspect committed:1.0`.",
+      "solution": "docker commit appbox committed:1.0\ndocker image inspect committed:1.0 --format '{{.Id}}'",
+      "verification": [ { "id": "1", "description": "running container 'appbox' committed to image committed:1.0", "script": "validate/qc_commit.sh", "weightage": 15 } ]
+    },
+    {
+      "id": "3",
       "title": "Modify the image: add a label and tag",
       "teach": "The same context can produce many images; you **modify** an image by changing the Dockerfile and rebuilding, or by stamping metadata at build time.\n\n**Relabel / retag without editing the Dockerfile:**\n- `docker build -t myapp:2.0 --label version=2 <context>` — adds/overrides an image label.\n- `docker tag src:tag new:tag` — a second name for the **same** image id (no rebuild); this is how you prepare a registry path like `registry/repo:tag`.\n- `docker image inspect name:tag` shows `.Config.Labels`, `.Config.Cmd`, layers; `docker history name:tag` shows each layer.\n\n**Gotchas:**\n- A tag is just a pointer — `docker tag` makes another name, it does not copy or rebuild.\n- `--label` lands under `.Config.Labels` (same place a Dockerfile `LABEL` does, but without baking a new layer).\n- Rebuilding with an existing tag moves the tag to the new image and leaves the old one dangling.\n- Image **digests** (`name@sha256:…`) are immutable; tags are mutable — pin digests for supply-chain safety (CKS).",
       "prompt": "Rebuild the same context as `myapp:2.0`, adding an image label `version=2` **via the build flag** (don't edit the Dockerfile).\n\nTarget: image `myapp:2.0` exists and its config label `version` equals `2`.",
       "hint": "`docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img`. Verify: `docker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'`.",
       "solution": "docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img\ndocker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'   # 2",
-      "verification": [ { "id": "1", "description": "image myapp:2.0 built with label version=2", "script": "validate/q2_s1.sh", "weightage": 20 } ]
-    },
-    {
-      "id": "3",
-      "title": "Save the image to a .tgz tarball",
-      "teach": "Images move between machines as a **tarball** without needing a registry.\n\n**Save vs export (know the difference):**\n- `docker save name:tag -o out.tar` (or `| gzip > out.tgz`) — saves the **image** with all layers + metadata; reload with `docker load -i out.tgz`.\n- `docker export <container> -o fs.tar` — exports a **container's flat filesystem** (no layers/history); reload with `docker import`.\n- podman: `podman save` / `podman load` are the equivalents.\n\n**Gotchas:**\n- `save`/`load` preserve tags, layers and config; `export`/`import` flatten and **lose** CMD/ENV/history unless you re-specify them.\n- `docker save` writes an **uncompressed** tar by default — pipe through `gzip` to get a genuine `.tgz` (naming a plain tar `.tgz` doesn't compress it).\n- A docker-save archive contains `manifest.json` + per-layer blobs — that's how tools recognise it.\n- Move the file (scp/cp), then `docker load` on the far side — no registry round-trip.",
-      "prompt": "Save the `myapp:2.0` image to a gzipped tarball at `/tmp/kindlab-img/myapp-2.0.tgz`.\n\nTarget: the file exists and is a valid docker image archive (contains `manifest.json`).",
-      "hint": "`docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz`. Check it: `tar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json`.",
-      "solution": "docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz\ntar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json   # present",
-      "verification": [ { "id": "1", "description": "myapp:2.0 saved to a valid gzipped image archive", "script": "validate/q3_s1.sh", "weightage": 20 } ]
+      "verification": [ { "id": "1", "description": "image myapp:2.0 built with label version=2", "script": "validate/q2_s1.sh", "weightage": 14 } ]
     },
     {
       "id": "4",
+      "title": "Save the image to a .tgz tarball",
+      "teach": "Images move between machines as a **tarball** without needing a registry.\n\n**Save vs export (know the difference):**\n- `docker save name:tag -o out.tar` (or `| gzip > out.tgz`) — saves the **image** with all layers + metadata; reload with `docker load -i out.tgz`.\n- `docker export <container> -o fs.tar` — exports a **container's flat filesystem** (no layers/history); reload with `docker import`.\n- podman: `podman save` / `podman load` are the equivalents.\n\n**Gotchas:**\n- `save`/`load` preserve tags, layers and config; `export`/`import` flatten and **lose** CMD/ENV/history unless you re-specify them.\n- `docker save` writes an **uncompressed** tar by default — pipe through `gzip` to get a genuine `.tgz` (naming a plain tar `.tgz` doesn't compress it).\n- A docker-save archive contains `manifest.json` + per-layer blobs — the **Docker** format (distinct from OCI, next step).\n- Move the file (scp/cp), then `docker load` on the far side — no registry round-trip.",
+      "prompt": "Save the `myapp:2.0` image to a gzipped tarball at `/tmp/kindlab-img/myapp-2.0.tgz`.\n\nTarget: the file exists and is a valid docker image archive (contains `manifest.json`).",
+      "hint": "`docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz`. Check it: `tar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json`.",
+      "solution": "docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz\ntar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json   # present",
+      "verification": [ { "id": "1", "description": "myapp:2.0 saved to a valid gzipped Docker image archive", "script": "validate/q3_s1.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "5",
+      "title": "Export to the OCI image format",
+      "teach": "A container **image** can be stored in two archive formats: the legacy **Docker** format (`docker save`, recognised by `manifest.json`) and the vendor-neutral **OCI image layout** — the open standard, recognised by an `oci-layout` marker + `index.json` + a `blobs/` tree. Modern tooling increasingly expects OCI.\n\n**Produce / convert to OCI:**\n- `docker buildx build --output type=oci,dest=out.tar <context>` — build straight to an OCI archive (buildx ships with Docker — used here).\n- `skopeo copy docker-daemon:name:tag oci:out-dir:tag` — the canonical **converter** from a local Docker image to an OCI layout (install `skopeo` to use it).\n- `podman save --format oci-archive -o out.tar name:tag` — podman's OCI export.\n\n**Gotchas:**\n- `docker save` is **Docker** format, **not** OCI — a common trap when a task says 'OCI'.\n- Recognise the format by its marker: `oci-layout`+`index.json` (OCI) vs `manifest.json` (Docker). Registries accept both; OCI is the portable standard.\n- `buildx --output type=oci` builds fresh to OCI; to convert an **existing** image in place, reach for `skopeo`/`podman`.",
+      "prompt": "Export the build context at `/tmp/kindlab-img` to an **OCI-format** archive at `/tmp/kindlab-img/myapp-oci.tar` using buildx.\n\nTarget: the archive is a valid OCI image layout (contains `oci-layout` and `index.json`).",
+      "hint": "`docker buildx build --output type=oci,dest=/tmp/kindlab-img/myapp-oci.tar /tmp/kindlab-img`. Verify: `tar -tf /tmp/kindlab-img/myapp-oci.tar | grep -E 'oci-layout|index.json'` (NOT `docker save`, which is Docker format).",
+      "solution": "docker buildx build --output type=oci,dest=/tmp/kindlab-img/myapp-oci.tar /tmp/kindlab-img\ntar -tf /tmp/kindlab-img/myapp-oci.tar | grep -E 'oci-layout|index.json'   # both present",
+      "verification": [ { "id": "1", "description": "myapp-oci.tar is a valid OCI image layout (oci-layout + index.json)", "script": "validate/qc_oci.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "6",
       "title": "Load the image into the cluster and run it",
       "teach": "A locally-built image isn't visible to the cluster until it's on the nodes — kind nodes run their **own** containerd image store, separate from your host Docker.\n\n**Get a local image onto kind nodes:**\n- `kind load docker-image name:tag --name <cluster>` — copies a host image into every node.\n- `kind load image-archive out.tgz --name <cluster>` — loads from a `docker save` archive.\n- (Or push to a wired-in local **registry** and pull by `localhost:5001/name:tag` — the next step.)\n\n**Run it:** set `imagePullPolicy: IfNotPresent` (or `Never`) so the kubelet uses the on-node image instead of trying to pull from a registry.\n\n**Gotchas:**\n- Default `imagePullPolicy` is `Always` for the `:latest` tag and `IfNotPresent` otherwise — a `:latest` local image can still trigger a failing pull; set it explicitly.\n- `ErrImagePull`/`ImagePullBackOff` on a local image means you didn't `kind load` it (or the name/tag doesn't match).\n- `kind load` must target the right `--name`; loading into the wrong cluster leaves the pod unable to find the image.\n- Every node has its own store — `kind load` covers all nodes for you.",
       "prompt": "Make `myapp:2.0` available to the `kindlab` cluster, then in namespace `images-learn` run a pod named `myapp` using it, with `imagePullPolicy: IfNotPresent`.\n\nTarget: pod `myapp` in `images-learn` is `Running` using image `myapp:2.0`.",
       "hint": "`kind load docker-image myapp:2.0 --name kindlab`, then `kubectl -n images-learn run myapp --image=myapp:2.0 --image-pull-policy=IfNotPresent`.",
       "solution": "kind load docker-image myapp:2.0 --name kindlab\nkubectl -n images-learn run myapp --image=myapp:2.0 --image-pull-policy=IfNotPresent\nkubectl -n images-learn get pod myapp -o wide",
-      "verification": [ { "id": "1", "description": "pod myapp is Running from the local image myapp:2.0", "script": "validate/q4_s1.sh", "weightage": 20 } ]
+      "verification": [ { "id": "1", "description": "pod myapp is Running from the local image myapp:2.0", "script": "validate/q4_s1.sh", "weightage": 14 } ]
     },
     {
-      "id": "5",
+      "id": "7",
       "title": "Push the image to a registry",
       "teach": "A **registry** is the shared store pods pull from. The flow is tag → push → (cluster) pull.\n\n**Push:**\n- `docker tag name:tag <registry>/<repo>:tag` then `docker push <registry>/<repo>:tag`.\n- `localhost:5001` here is a plain-HTTP local registry (Docker treats `localhost` as insecure-allowed); real registries need `docker login` first — that writes `~/.docker/config.json`, which becomes a `kubernetes.io/dockerconfigjson` **imagePullSecret**.\n- Inspect a registry over its HTTP API: `GET /v2/_catalog` (repos) and `GET /v2/<repo>/tags/list`.\n\n**Gotchas:**\n- The image **name must embed the registry host** to push there — `docker push myapp:2.0` goes to Docker Hub; it must be `localhost:5001/myapp:2.0`.\n- Private registries need an **imagePullSecret** on the pod/ServiceAccount or pulls fail `401`.\n- A non-`localhost` insecure registry needs daemon `insecure-registries` config or a trusted TLS cert.\n- Pin by **digest** (`@sha256:`) in production/CKS so a mutable tag can't be swapped under you.",
       "prompt": "A local registry runs at `localhost:5001`. Tag `myapp:2.0` as `localhost:5001/myapp:2.0` and push it.\n\nTarget: the registry's catalog lists repo `myapp` with tag `2.0`.",
       "hint": "`docker tag myapp:2.0 localhost:5001/myapp:2.0` then `docker push localhost:5001/myapp:2.0`. Confirm: `curl -s localhost:5001/v2/_catalog` and `curl -s localhost:5001/v2/myapp/tags/list`.",
       "solution": "docker tag myapp:2.0 localhost:5001/myapp:2.0\ndocker push localhost:5001/myapp:2.0\ncurl -s localhost:5001/v2/_catalog              # {\"repositories\":[\"myapp\"]}\ncurl -s localhost:5001/v2/myapp/tags/list       # {\"name\":\"myapp\",\"tags\":[\"2.0\"]}",
-      "verification": [ { "id": "1", "description": "myapp:2.0 pushed to the local registry (catalog + tag)", "script": "validate/q5_s1.sh", "weightage": 20 } ]
+      "verification": [ { "id": "1", "description": "myapp:2.0 pushed to the local registry (catalog + tag)", "script": "validate/q5_s1.sh", "weightage": 14 } ]
     }
   ]
 }

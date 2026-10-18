@@ -1,0 +1,90 @@
+{
+  "id": "learn-ckad-pod-design",
+  "name": "Learn: Pod Design",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD › Application Design & Build (20%). Goal: compose multi-container Pods — sidecars sharing an emptyDir, init containers that prepare volumes, liveness/readiness/startup probes, and lifecycle hooks with a termination grace period — the Pod-design building blocks the exam expects you to write by hand.",
+  "description": "Master Pod design step by step — sidecar containers sharing a volume, init containers, liveness/readiness/startup probes, and postStart/preStop lifecycle hooks with terminationGracePeriodSeconds. Build each pattern with plain kubectl and YAML.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Sidecar sharing an emptyDir volume",
+      "teach": "A **Pod** can run more than one container. A common pattern is a **sidecar**: a helper container that runs alongside the main app and cooperates through a **shared volume**.\n\nThe simplest shared volume is an **emptyDir** — an empty directory created when the Pod starts and mounted into every container that asks for it. Containers mount the *same* emptyDir at (possibly different) paths, so whatever one writes the other can read.\n\nHere the main `nginx` container serves files from `/usr/share/nginx/html`, while a busybox **sidecar** writes content into that same directory — the sidecar produces, nginx serves.\n\n**Ways to share data between containers:**\n- **emptyDir** — scratch space tied to the Pod's lifetime; deleted when the Pod is removed. `emptyDir: {}` is disk-backed; `emptyDir: {medium: Memory}` is a tmpfs (RAM); `sizeLimit` caps it.\n- **configMap / secret volume** — inject config as files.\n- **PVC** — durable storage that survives the Pod.\n- **downwardAPI / projected** — expose Pod metadata or combine several sources.\n\n**Classic sidecar vs native sidecar:** a *plain* sidecar is just a second entry under `containers` (what this step builds). A **native sidecar** (1.29+) is an `initContainer` with `restartPolicy: Always` — it starts before the app, stays running, and is terminated after the app, which fixes ordering/shutdown problems the plain pattern has.\n\n**Gotchas:**\n- Both containers must declare a `volumeMounts` entry whose `name` matches the `volumes` entry — a volume defined but not mounted does nothing.\n- `mountPath` can differ per container; the `name` is what links them.\n- All Pod containers share the network namespace (`localhost`, port space) but **not** the filesystem — only mounted volumes are shared.\n- A sidecar that exits turns the Pod `NotReady`/`Error`; keep it alive (e.g. `sleep`) unless using the native-sidecar pattern.",
+      "prompt": "In namespace `pod-design`, create a Pod `web-sidecar` with:\n- container `web` using image `nginx:1.25`, mounting an emptyDir volume `content` at `/usr/share/nginx/html`\n- a sidecar container `writer` using image `busybox:1.36` that mounts the **same** `content` volume at `/data` and runs `sh -c 'echo hello-from-sidecar > /data/index.html; sleep 3600'`\n\nTarget: `kubectl -n pod-design get pod web-sidecar` is Running with 2/2 ready, both containers share the `content` emptyDir, and `writer` mounts it at `/data`.",
+      "hint": "Write a Pod spec with two entries under `containers` and one `emptyDir` volume under `volumes`. Each container needs a matching `volumeMounts` entry referencing `name: content`. Apply with `kubectl apply -f`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: web-sidecar\n  namespace: pod-design\nspec:\n  volumes:\n  - name: content\n    emptyDir: {}\n  containers:\n  - name: web\n    image: nginx:1.25\n    volumeMounts:\n    - name: content\n      mountPath: /usr/share/nginx/html\n  - name: writer\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo hello-from-sidecar > /data/index.html; sleep 3600\"]\n    volumeMounts:\n    - name: content\n      mountPath: /data\nYAML\nkubectl -n pod-design get pod web-sidecar -w",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-sidecar runs 2 containers sharing the 'content' emptyDir",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Init container preparing a shared volume",
+      "teach": "An **init container** runs to completion *before* the app containers start. If there are several, they run one at a time, in order; the app containers only start once all init containers have exited successfully.\n\nA classic use is **preparing a shared volume**: the init container writes a file (or clones a repo, or fetches config) into an emptyDir, then the main container — which mounts the same volume — finds the data already in place when it boots.\n\nUnlike a sidecar, the init container is *gone* by the time the app runs; it only sets the stage.\n\n**Common uses of init containers:**\n- Prepare/seed a shared volume (this step).\n- Wait for a dependency (poll a Service/DB until it responds) so the app starts only when ready.\n- Run a migration or fetch a secret/artifact before the app boots.\n\n**Init vs native sidecar:** a regular `initContainer` must **exit 0** before the next one (and the app) runs. An `initContainer` with `restartPolicy: Always` is a **native sidecar** (1.29+) — it *stays running* alongside the app instead of completing, which is how you model a long-lived helper that must be up before the main container.\n\n**Gotchas:**\n- Order matters: init containers run sequentially in the listed order; a failing init container is **retried** per the Pod's `restartPolicy` and blocks the whole Pod (`Init:Error`/`Init:CrashLoopBackOff`).\n- Init containers can have their own `resources`, `securityContext`, and `volumeMounts`.\n- Probes don't apply to ordinary init containers.\n- `kubectl logs <pod> -c <initname>` to debug; `kubectl describe pod` shows init status.\n- An init container finishing does **not** keep its files unless they were written to a shared volume (its own rootfs is gone when it exits).",
+      "prompt": "In namespace `pod-design`, create a Pod `init-prep` with:\n- an emptyDir volume `shared`\n- an init container `setup` using `busybox:1.36` that runs `sh -c 'echo ready > /work/status.txt'`, mounting `shared` at `/work`\n- a main container `app` using `busybox:1.36` that mounts `shared` at `/work` and runs `sh -c 'cat /work/status.txt; sleep 3600'`\n\nTarget: `kubectl -n pod-design get pod init-prep` is Running (init completed), and the `setup` init container prepared `/work/status.txt` in the shared volume before `app` started.",
+      "hint": "Put the init container under `spec.initContainers` and the app under `spec.containers`; both reference the same volume `shared`. The main container prints the file the init container wrote.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: init-prep\n  namespace: pod-design\nspec:\n  volumes:\n  - name: shared\n    emptyDir: {}\n  initContainers:\n  - name: setup\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo ready > /work/status.txt\"]\n    volumeMounts:\n    - name: shared\n      mountPath: /work\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"cat /work/status.txt; sleep 3600\"]\n    volumeMounts:\n    - name: shared\n      mountPath: /work\nYAML\nkubectl -n pod-design get pod init-prep -w",
+      "verification": [
+        {
+          "id": "1",
+          "description": "init-prep has an init container that prepared the shared volume",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Liveness + readiness probes (httpGet)",
+      "teach": "**Probes** let the kubelet check container health:\n- A **liveness probe** answers “is this container still healthy?” — if it fails repeatedly, the kubelet **restarts** the container.\n- A **readiness probe** answers “is this container ready to receive traffic?” — if it fails, the Pod is removed from Service endpoints (but *not* restarted).\n- A **startup probe** gates the other two for slow starters (see the next step).\n\nAn **httpGet** probe sends an HTTP request to a `path` on a `port`; any 2xx/3xx response is a pass. `initialDelaySeconds` delays the first check; `periodSeconds` sets the interval.\n\n**Four handler types** (pick exactly one per probe):\n- `httpGet` — `path` + `port` (+ optional `httpHeaders`, `scheme: HTTPS`).\n- `exec` — runs a `command` in the container; exit 0 = pass.\n- `tcpSocket` — opens a TCP connection to a `port`.\n- `grpc` — `port` (+ optional `service`) for gRPC health checks.\n\n**Tuning fields:** `initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, `successThreshold`, `failureThreshold`.\n\n**Gotchas:**\n- `successThreshold` **must be 1** for liveness and startup probes; readiness may be >1.\n- Liveness failure = restart (can cause crash loops if misconfigured); readiness failure = drop from endpoints but keep running.\n- No probe at all = container is treated as ready/alive as soon as it's started — fine for simple pods, risky for real services.\n- `httpGet` 2xx/3xx = pass; 4xx/5xx = fail.\n- Set `initialDelaySeconds` generously or use a startup probe, otherwise a slow boot triggers premature restarts.",
+      "prompt": "In namespace `pod-design`, create a Pod `probed` with one container `web` (`nginx:1.25`, containerPort 80) that has **both**:\n- a liveness probe: httpGet path `/` on port 80, `initialDelaySeconds: 5`, `periodSeconds: 10`\n- a readiness probe: httpGet path `/` on port 80, `initialDelaySeconds: 3`, `periodSeconds: 5`\n\nTarget: `kubectl -n pod-design get pod probed` is Running and 1/1 ready, with both an httpGet livenessProbe and an httpGet readinessProbe on the `web` container.",
+      "hint": "Under the container add `livenessProbe:` and `readinessProbe:`, each with an `httpGet:` block (`path` and `port`). nginx serves `/` on port 80 so both probes pass.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: probed\n  namespace: pod-design\nspec:\n  containers:\n  - name: web\n    image: nginx:1.25\n    ports:\n    - containerPort: 80\n    livenessProbe:\n      httpGet:\n        path: /\n        port: 80\n      initialDelaySeconds: 5\n      periodSeconds: 10\n    readinessProbe:\n      httpGet:\n        path: /\n        port: 80\n      initialDelaySeconds: 3\n      periodSeconds: 5\nYAML\nkubectl -n pod-design get pod probed -w",
+      "verification": [
+        {
+          "id": "1",
+          "description": "probed has httpGet liveness AND readiness probes and is ready",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Startup probe + readiness probe",
+      "teach": "A **startup probe** protects **slow-starting** containers. While it is running, the liveness and readiness probes are **disabled**, so a container that takes a while to boot isn't killed prematurely. Once the startup probe succeeds once, the other probes take over.\n\nThe key knob is `failureThreshold × periodSeconds` — that product is the maximum time the container is allowed to start. Pair it with a **readiness probe** so the Pod only receives traffic after it's both started *and* ready.\n\n**Same handlers as any probe:** `httpGet`, `exec`, `tcpSocket`, or `grpc` — the startup probe isn't limited to HTTP.\n\n**How the three probes relate:**\n- Startup probe runs **first and alone**; liveness/readiness are held off until it passes once.\n- After it passes, it never runs again; liveness and readiness take over.\n- Use it instead of a huge `initialDelaySeconds` on liveness — it's the cleaner way to give a slow app a long grace window without weakening steady-state checks.\n\n**Gotchas:**\n- `successThreshold` must be **1** for a startup probe.\n- Max startup budget = `failureThreshold × periodSeconds` (here 30 × 10 = 300s). If the app isn't up by then, the kubelet kills and restarts it.\n- A startup probe is optional; without one, liveness starts checking after its own `initialDelaySeconds`.\n- Readiness still governs endpoint membership after startup succeeds, so a started-but-not-ready Pod gets no Service traffic.",
+      "prompt": "In namespace `pod-design`, create a Pod `slow-start` with one container `web` (`nginx:1.25`, containerPort 80) that has:\n- a **startup probe**: httpGet path `/` on port 80, `failureThreshold: 30`, `periodSeconds: 10`\n- a **readiness probe**: httpGet path `/` on port 80, `periodSeconds: 5`\n\nTarget: `kubectl -n pod-design get pod slow-start` is Running and 1/1 ready, with both an httpGet startupProbe and an httpGet readinessProbe on the `web` container.",
+      "hint": "Add `startupProbe:` and `readinessProbe:` under the container, each with an `httpGet:` block. The startup probe allows up to failureThreshold×periodSeconds (300s) for the container to come up.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: slow-start\n  namespace: pod-design\nspec:\n  containers:\n  - name: web\n    image: nginx:1.25\n    ports:\n    - containerPort: 80\n    startupProbe:\n      httpGet:\n        path: /\n        port: 80\n      failureThreshold: 30\n      periodSeconds: 10\n    readinessProbe:\n      httpGet:\n        path: /\n        port: 80\n      periodSeconds: 5\nYAML\nkubectl -n pod-design get pod slow-start -w",
+      "verification": [
+        {
+          "id": "1",
+          "description": "slow-start has httpGet startup AND readiness probes and is ready",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Lifecycle hooks + terminationGracePeriodSeconds",
+      "teach": "Containers can run **lifecycle hooks**:\n- **postStart** fires right after the container is created — good for a one-time setup action.\n- **preStop** fires right before the container is stopped (e.g. drain connections, flush state). It runs *before* the TERM signal is sent to the entrypoint.\n\n`terminationGracePeriodSeconds` on the Pod is how long Kubernetes waits after starting shutdown (preStop + TERM) before force-killing with KILL. A well-behaved app uses preStop to finish in-flight work, sized to fit inside the grace period.\n\n**Hook handler types:** both hooks accept `exec` (run a command), `httpGet`, or `tcpSocket` — same shape as probes, but no retries/thresholds.\n\n**Shutdown sequence:** Pod marked Terminating → removed from endpoints → **preStop** runs → **SIGTERM** sent to PID 1 → wait up to `terminationGracePeriodSeconds` → **SIGKILL** if still alive.\n\n**Gotchas:**\n- The grace-period clock covers **preStop + SIGTERM together**. A `preStop` that sleeps 25s inside a 30s grace period leaves only ~5s for the app to handle TERM.\n- **postStart has no ordering guarantee** relative to the container entrypoint — it may run before or after the main process starts, so don't depend on the app being up.\n- A hook that fails (non-zero exit / bad HTTP) can kill the container (postStart) — keep hook commands simple and reliable.\n- `terminationGracePeriodSeconds` defaults to **30**; set `0` only via force-delete. `kubectl delete --grace-period=` can override at delete time.\n- Hooks run **at least once** but delivery isn't guaranteed if the node dies.",
+      "prompt": "In namespace `pod-design`, create a Pod `graceful` with `terminationGracePeriodSeconds: 30` and one container `web` (`nginx:1.25`) that has a **lifecycle** block:\n- a **postStart** exec hook running `sh -c 'echo started > /tmp/poststart'`\n- a **preStop** exec hook running `sh -c 'sleep 5'`\n\nTarget: `kubectl -n pod-design get pod graceful` is Running, has `terminationGracePeriodSeconds: 30`, and the `web` container has both a postStart and a preStop exec lifecycle hook.",
+      "hint": "Add `spec.terminationGracePeriodSeconds: 30` and a `lifecycle:` block under the container with `postStart.exec.command` and `preStop.exec.command`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: graceful\n  namespace: pod-design\nspec:\n  terminationGracePeriodSeconds: 30\n  containers:\n  - name: web\n    image: nginx:1.25\n    lifecycle:\n      postStart:\n        exec:\n          command: [\"sh\",\"-c\",\"echo started > /tmp/poststart\"]\n      preStop:\n        exec:\n          command: [\"sh\",\"-c\",\"sleep 5\"]\nYAML\nkubectl -n pod-design get pod graceful -w",
+      "verification": [
+        {
+          "id": "1",
+          "description": "graceful has postStart+preStop hooks and grace period 30",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "id": "learn-ckad-config",
+  "name": "Learn: Configuration & Security",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD \u203a Application Environment, Configuration & Security (25%). Goal: wire ConfigMaps and Secrets into a container as env vars and volumes, set resource requests/limits, lock a container down with a securityContext (non-root, dropped capabilities), and run a Pod under a dedicated ServiceAccount \u2014 the configuration-and-security tasks the exam leans on.",
+  "description": "Master the CKAD configuration and security domain step by step \u2014 inject ConfigMaps and Secrets into pods (env and volumes), constrain containers with resource requests/limits, harden them with a securityContext, and bind a pod to a purpose-built ServiceAccount. Everything is plain object-level kubectl.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "ConfigMap as env vars (configMapKeyRef + envFrom)",
+      "teach": "A **ConfigMap** holds non-secret config as key/value pairs so you don't bake settings into the image. A container can consume it **three** ways \u2014 know all of them, the exam mixes them:\n- **One key \u2192 one env var** with `env[].valueFrom.configMapKeyRef` (name + key) \u2014 rename or cherry-pick a single value.\n- **Every key \u2192 env vars of the same name** with `envFrom.configMapRef` \u2014 bulk-import the whole ConfigMap. Add a `prefix:` to namespace the vars if you like.\n- **As a volume** with `volumes[].configMap` + a `volumeMount` \u2014 **each key becomes a file** in the mount path (ideal for config files like nginx.conf). Use `items` to project only chosen keys to specific paths, and `subPath` on the mount to drop a single file into a directory **without hiding the rest of it**.\n\n**Gotchas the exam leans on:**\n- Env values (`env`/`envFrom`) are read **once at pod start** \u2014 editing the ConfigMap won't update a running pod's env. **Mounted volume keys DO update** live (eventual, cache-delayed), *unless* you used `subPath`, which freezes that file.\n- A referenced ConfigMap/key must exist at pod start or the pod won't start \u2014 mark a key `optional: true` to tolerate it being absent.\n- `kubectl create configmap` sources: `--from-literal=k=v`, `--from-file=file` (filename\u2192key), `--from-file=key=file` (rename), `--from-env-file=f` (whole file of k=v pairs).\n- `immutable: true` locks a ConfigMap so it can't be changed (only deleted/recreated) \u2014 protects against accidental edits and reduces apiserver load.\n- Symmetry to remember: everything here applies to **Secrets** too \u2014 just swap `configMap*` \u2192 `secret*`.",
+      "prompt": "Namespace `ckad-config` already has a ConfigMap `app-cfg` with keys `APP_COLOR=blue` and `APP_MODE=prod`. Create a pod `cfg-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) that:\n- sets env var `COLOR` from the `APP_COLOR` key via `configMapKeyRef`, and\n- imports the whole `app-cfg` ConfigMap via `envFrom` (so `APP_MODE` appears as-is).\n\nTarget: inside the pod, `COLOR=blue` and `APP_MODE=prod`.",
+      "hint": "Start from `kubectl run cfg-pod --image=busybox:1.36 -n ckad-config --dry-run=client -o yaml -- sh -c 'sleep 3600' > p.yaml`, then under the container add `env:` with a `valueFrom.configMapKeyRef` (name: app-cfg, key: APP_COLOR) for `COLOR`, plus `envFrom: [{configMapRef: {name: app-cfg}}]`. Apply it.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: cfg-pod\n  namespace: ckad-config\nspec:\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    env:\n    - name: COLOR\n      valueFrom:\n        configMapKeyRef:\n          name: app-cfg\n          key: APP_COLOR\n    envFrom:\n    - configMapRef:\n        name: app-cfg\nEOF\nkubectl -n ckad-config exec cfg-pod -- env | grep -E 'COLOR|APP_MODE'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "cfg-pod has COLOR=blue (configMapKeyRef) and APP_MODE=prod (envFrom)",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Secret as env var and as a mounted volume",
+      "teach": "A **Secret** is like a ConfigMap but for sensitive data. Note: it is **base64-encoded, NOT encrypted** at rest by default (anyone with `get secret` + base64 can read it) \u2014 encryption at rest is a separate cluster feature. It supports the **same three** methods \u2014 the symmetry is worth memorizing, because the exam expects a Secret to do everything a ConfigMap does:\n- **One key \u2192 one env var** via `env[].valueFrom.secretKeyRef` \u2014 but the value is then visible in `env`/process listings.\n- **Every key \u2192 env vars** via `envFrom.secretRef` \u2014 the bulk-import, exactly like `envFrom.configMapRef`.\n- **As a volume** via `volumes[].secret.secretName` + a `volumeMount` \u2014 each key becomes a file (preferred for TLS certs/tokens); use `items` to project selected keys and `defaultMode` to set file perms (e.g. `0400`).\n\n**Gotchas the exam leans on:**\n- Anything a ConfigMap does (single-key, `envFrom`, volume, `items`/`subPath`, `optional: true`, `immutable: true`), a Secret does \u2014 just swap `configMap*` \u2192 `secret*`.\n- Volume-mounted Secrets **update live**; env-injected ones are **frozen at pod start** (and `subPath` freezes a mounted file too).\n- **Secret types** matter: `generic`/`Opaque` (arbitrary k/v), `kubernetes.io/tls` (needs `tls.crt`+`tls.key`, used by Ingress), `kubernetes.io/dockerconfigjson` (image-pull creds, referenced via `imagePullSecrets`), `kubernetes.io/service-account-token`.\n- Create with `kubectl create secret generic s --from-literal=k=v` / `--from-file=...`; `kubectl create secret tls`; `kubectl create secret docker-registry`. In YAML, `data:` holds base64 values while `stringData:` lets you write plaintext (kubelet encodes it).",
+      "prompt": "Namespace `ckad-config` has a Secret `db-cred` with keys `DB_USER=admin` and `DB_PASS=s3cr3t`. Create a pod `sec-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) that:\n- sets env var `DB_PASS` from the secret's `DB_PASS` key via `secretKeyRef`, and\n- mounts the whole `db-cred` Secret as a volume at `/etc/creds` (read-only is fine).\n\nTarget: env `DB_PASS=s3cr3t`, and file `/etc/creds/DB_USER` contains `admin`.",
+      "hint": "Add under the container `env:` with `valueFrom.secretKeyRef` (name: db-cred, key: DB_PASS), a `volumeMounts` entry (name: creds, mountPath: /etc/creds), and a pod-level `volumes:` entry `secret: {secretName: db-cred}`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: sec-pod\n  namespace: ckad-config\nspec:\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    env:\n    - name: DB_PASS\n      valueFrom:\n        secretKeyRef:\n          name: db-cred\n          key: DB_PASS\n    volumeMounts:\n    - name: creds\n      mountPath: /etc/creds\n      readOnly: true\n  volumes:\n  - name: creds\n    secret:\n      secretName: db-cred\nEOF\nkubectl -n ckad-config exec sec-pod -- sh -c 'echo $DB_PASS; cat /etc/creds/DB_USER'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sec-pod exposes DB_PASS=s3cr3t and mounts /etc/creds/DB_USER=admin",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Resource requests and limits",
+      "teach": "**Requests** tell the scheduler how much CPU/memory a container needs (used to pick a node and reserve capacity). **Limits** cap how much it may use. Set them under `resources.requests` and `resources.limits` on the **container** (each container is budgeted separately; the pod's total is the sum).\n\n**Units:** CPU in cores or **millicores** (`250m` = 0.25 core). Memory in bytes with power-of-two suffixes `Ki`/`Mi`/`Gi` or decimal `K`/`M`/`G` \u2014 `128Mi` \u2260 `128M`. Watch the capitalization.\n\n**Gotchas the exam leans on:**\n- **Memory over the limit \u2192 container is OOM-killed** (and restarted per `restartPolicy`). **CPU over the limit \u2192 throttled, never killed.** This distinction is a favorite question.\n- **QoS classes** derive from requests/limits: `Guaranteed` (every container has limits == requests for both cpu+mem), `Burstable` (at least a request set), `BestEffort` (none set). QoS drives eviction order under node pressure (BestEffort evicted first).\n- Omitting a request but setting a limit makes the request **default to the limit**. A limit with no request still works.\n- A **LimitRange** in the namespace can inject defaults or enforce min/max; a **ResourceQuota** can require every pod to declare requests/limits and cap the namespace total \u2014 a pod missing them may be rejected.\n- Other resources use the same block, e.g. `requests`/`limits` for `ephemeral-storage` and extended resources like `nvidia.com/gpu` (GPUs must be set in **limits**).",
+      "prompt": "Create a pod `res-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) in `ckad-config` with the container's resources set to:\n- requests: `cpu=100m`, `memory=64Mi`\n- limits: `cpu=250m`, `memory=128Mi`\n\nTarget: the container shows exactly those requests and limits.",
+      "hint": "`kubectl run res-pod --image=busybox:1.36 -n ckad-config --restart=Never -o yaml --dry-run=client -- sh -c 'sleep 3600' > r.yaml`, then add a `resources:` block. Or use `--requests`/`--limits`... those flags are deprecated, so prefer editing YAML.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: res-pod\n  namespace: ckad-config\nspec:\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    resources:\n      requests:\n        cpu: 100m\n        memory: 64Mi\n      limits:\n        cpu: 250m\n        memory: 128Mi\nEOF\nkubectl -n ckad-config get pod res-pod -o jsonpath='{.spec.containers[0].resources}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "res-pod container has requests 100m/64Mi and limits 250m/128Mi",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Container securityContext: non-root + drop ALL capabilities",
+      "teach": "A **securityContext** hardens how a container runs. It exists at **two levels** \u2014 pod-level (`spec.securityContext`) and container-level (`spec.containers[].securityContext`). For overlapping fields the **container-level value wins**; but some fields live at only one level.\n\n**Container-level only:**\n- `runAsNonRoot: true` \u2014 kubelet refuses to start the container if the image would run as UID 0.\n- `runAsUser` / `runAsGroup` \u2014 force a specific UID/GID.\n- `capabilities.add` / `capabilities.drop: [\"ALL\"]` \u2014 add/strip Linux capabilities; dropping ALL is the least-privilege default (capabilities are **container-only**).\n- `readOnlyRootFilesystem: true` \u2014 makes `/` immutable; the app then needs a **writable `emptyDir`** mounted at any path it writes (e.g. `/tmp`, logs) or it will error.\n- `allowPrivilegeEscalation: false` \u2014 blocks gaining more privs than the parent (setuid binaries, etc.).\n- `privileged: true` \u2014 full host access; the opposite of hardening.\n\n**Pod-level (can also sit at container level where noted):**\n- `fsGroup` \u2014 group that owns mounted volumes (so a non-root UID can write to them).\n- `runAsUser`/`runAsGroup`/`runAsNonRoot` \u2014 act as defaults inherited by containers.\n- `seccompProfile.type` \u2014 `RuntimeDefault`, `Localhost`, or `Unconfined`.\n\n**Gotchas the exam leans on:**\n- `runAsNonRoot: true` only **verifies** the UID isn't 0 at startup \u2014 it does NOT pick a UID. Pair it with `runAsUser: <non-zero>`, or the image must already declare a non-root user, else `CreateContainerConfigError`.\n- `capabilities` and `readOnlyRootFilesystem` **cannot** be set at pod level \u2014 container only.\n- Dropping `ALL` then re-adding one (e.g. `add: [\"NET_BIND_SERVICE\"]`) is the clean way to bind low ports as non-root.",
+      "prompt": "Create a pod `sctx-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) in `ckad-config` whose container's `securityContext` has `runAsNonRoot: true`, `runAsUser: 1000`, and drops `ALL` capabilities.\n\nTarget: inside the pod, `id -u` prints `1000`, and the spec shows capabilities.drop includes ALL.",
+      "hint": "Under the container add `securityContext:` with `runAsNonRoot: true`, `runAsUser: 1000`, and `capabilities: {drop: [\"ALL\"]}`. busybox runs fine as a non-root UID.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: sctx-pod\n  namespace: ckad-config\nspec:\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    securityContext:\n      runAsNonRoot: true\n      runAsUser: 1000\n      capabilities:\n        drop: [\"ALL\"]\nEOF\nkubectl -n ckad-config exec sctx-pod -- id -u   # -> 1000",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sctx-pod runs as UID 1000 (non-root) with ALL capabilities dropped",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "ServiceAccount: run a pod under it, no token auto-mount",
+      "teach": "Every pod runs as a **ServiceAccount** (the namespace's `default` SA unless you set `spec.serviceAccountName`). Giving a workload its own SA lets you grant it exactly the RBAC it needs \u2014 least privilege. Create one with `kubectl create sa app-sa -n <ns>`.\n\nBy default Kubernetes auto-mounts the SA's API token into the pod at `/var/run/secrets/kubernetes.io/serviceaccount` (files `token`, `ca.crt`, `namespace`). If the workload never calls the API, set `automountServiceAccountToken: false` to avoid handing it a credential it doesn't need.\n\n**Gotchas the exam leans on:**\n- `automountServiceAccountToken` can be set on the **SA** (applies to all its pods) **or** on the **pod spec** \u2014 the **pod-level value wins** when both are present.\n- The SA only grants permissions once you bind it with RBAC: a **RoleBinding** (namespaced) or **ClusterRoleBinding**, with `subjects: [{kind: ServiceAccount, name: ..., namespace: ...}]`. An SA with no binding can still authenticate but is authorized for nothing.\n- The mounted token is a **projected volume** (`serviceAccountToken`): short-lived, auto-rotated, audience-bound. Since 1.24 `kubectl create sa` no longer auto-creates a long-lived Secret token \u2014 generate one on demand with `kubectl create token <sa>`, or create a `kubernetes.io/service-account-token` Secret manually if you need a static one.\n- Reference image-pull credentials from an SA via its `imagePullSecrets` so every pod using it inherits them.\n- `serviceAccount` (deprecated alias) vs `serviceAccountName` \u2014 use `serviceAccountName`.",
+      "prompt": "In `ckad-config`, create a ServiceAccount `app-sa`, then create a pod `sa-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) that runs under `app-sa` with `automountServiceAccountToken: false`.\n\nTarget: `sa-pod`'s `serviceAccountName` is `app-sa`, and no SA token is mounted inside the pod.",
+      "hint": "`kubectl create sa app-sa -n ckad-config`. Then in the pod spec set `serviceAccountName: app-sa` and `automountServiceAccountToken: false` (both at the pod spec level).",
+      "solution": "kubectl create sa app-sa -n ckad-config\ncat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: sa-pod\n  namespace: ckad-config\nspec:\n  serviceAccountName: app-sa\n  automountServiceAccountToken: false\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\nEOF\nkubectl -n ckad-config exec sa-pod -- ls /var/run/secrets/kubernetes.io/serviceaccount 2>&1 || echo 'no token (expected)'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sa-pod runs as SA app-sa with the API token NOT auto-mounted",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ],
+      "setup": "setup/q0_setup.sh"
+    }
+  ]
+}

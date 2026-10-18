@@ -1,0 +1,8 @@
+{
+  "name": "kindlab",
+  "version": "0.1.0",
+  "description": "A kind-based CKA/CKS practice bench with node access, structured labs, and grade-with-reasons feedback.",
+  "bin": { "kindlab": "bin/kindlab.js" },
+  "scripts": { "start": "node bin/kindlab.js serve" },
+  "license": "MIT"
+}

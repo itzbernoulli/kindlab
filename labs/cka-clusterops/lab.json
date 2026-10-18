@@ -1,0 +1,88 @@
+{
+  "id": "cka-clusterops",
+  "name": "CKA Cluster Operations",
+  "category": "CKA",
+  "description": "Node-level cluster administration you can't practice in CK-X: static pods, repairing a broken control-plane component, CSR approval, node draining, and etcd backup.",
+  "objective": "CKA \u203a Cluster Architecture + Troubleshooting. Prove you can operate the cluster node-side: static pods, control-plane repair, CSR approval, cordon/drain, and etcd backup.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Static pod on a worker",
+      "prompt": "On the worker node `$W1` (run `kindlab up` to see node names \u2014 e.g. `kindlab-worker`), create a **static pod** named `static-web` using image `nginx:alpine` by placing a manifest in `/etc/kubernetes/manifests/` on that node.\n\nThe kubelet will create a mirror pod named `static-web-<node>` in the `default` namespace. Verify it is Running.\n\n_Hint:_ `docker exec -it <node> bash`, then write the manifest; the pod name in the manifest should be `static-web`.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Static pod manifest present on the worker node",
+          "script": "validate/q1_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "Mirror pod static-web-<worker> is Running",
+          "script": "validate/q1_s2.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Repair a broken control-plane component",
+      "prompt": "The **kube-scheduler** is down \u2014 someone added a bad flag to its static pod manifest on the control-plane node, so it crash-loops and new pods won't schedule.\n\nFind and fix it (the manifest is `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP`) so the scheduler becomes healthy again.\n\n_Hint:_ `docker exec -it $CP bash`, inspect the manifest, remove the bogus flag; the kubelet restarts the static pod automatically.",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kube-scheduler static pod is Ready again",
+          "script": "validate/q2_s1.sh",
+          "weightage": 25
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Approve a CertificateSigningRequest",
+      "prompt": "A CertificateSigningRequest named `developer` is **Pending** (a new user needs a client cert). Approve it.\n\n_Hint:_ `kubectl get csr`, then `kubectl certificate approve developer`.",
+      "setup": "setup/q3_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "CSR 'developer' has an Approved condition",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Cordon and drain a node",
+      "prompt": "Node `$W2` needs maintenance. **Cordon** it so no new pods schedule there, then **drain** it (evict existing workloads, ignoring DaemonSets).\n\n_Hint:_ `kubectl cordon $W2` then `kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data`.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Worker node is cordoned (unschedulable)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Back up etcd",
+      "prompt": "Take an **etcd snapshot** and save it to `/opt/snapshot.db` on the control-plane node `$CP`.\n\n_Hint:_ run `etcdctl snapshot save` from inside the etcd pod (it has etcdctl + the certs), saving to a path under `/var/lib/etcd` (which is mounted on the node), then copy it to `/opt/snapshot.db`. See answers for the exact commands.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Snapshot file exists at /opt/snapshot.db on the control-plane",
+          "script": "validate/q5_s1.sh",
+          "weightage": 7
+        },
+        {
+          "id": "2",
+          "description": "Snapshot is a real (non-trivial) etcd backup",
+          "script": "validate/q5_s2.sh",
+          "weightage": 8
+        }
+      ]
+    }
+  ]
+}

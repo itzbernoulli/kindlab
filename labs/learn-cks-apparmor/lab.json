@@ -1,0 +1,76 @@
+{
+  "id": "learn-cks-apparmor",
+  "name": "Learn: AppArmor Confinement",
+  "category": "CKS",
+  "type": "learn",
+  "requiresHost": true,
+  "description": "Confine containers with AppArmor step by step — write and load a profile on a node with apparmor_parser, reference it from a pod via securityContext.appArmorProfile, verify a denied action is blocked, and contrast confined vs unconfined pods. Exam-focused runtime-security practice.",
+  "objective": "CKS › System Hardening (15%). Goal: write and load an AppArmor profile on a node, reference it from a pod (localhost/<name>), prove a denied operation is blocked, and contrast confined vs unconfined workloads — the mandatory-access-control hardening the exam expects.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Load an AppArmor profile on a node",
+      "teach": "**AppArmor** is a Linux Security Module (LSM) providing **Mandatory Access Control (MAC)** — it confines a program to a set of allowed operations by *path* (contrast SELinux, which is label-based). A **profile** names the program and lists rules such as `deny /etc/secret-data/** w,` (deny writes under that path).\n\n**Profile modes** — know all three:\n- **enforce**: violations are *blocked* and logged (what this lab uses).\n- **complain**: violations are *allowed* but logged — use it to learn what a profile needs, then promote to enforce.\n- **unconfined**: no restrictions at all.\n\n**Loading / managing profiles** (all on the node):\n- `apparmor_parser -r /etc/apparmor.d/<file>` — (re)load a profile into the kernel. `-W` waits for completion; `-R` removes one.\n- `aa-status` (a.k.a. `apparmor_status`) — list loaded profiles and their modes.\n- `aa-complain <profile>` / `aa-enforce <profile>` — flip a profile's mode (from the `apparmor-utils` package).\n\n**GOTCHAS**\n- The kernel tracks a profile by its **profile name** (the string after the `profile` keyword), *not* the filename — by convention they match, but a pod references the **name**.\n- A profile must be loaded on **every node** the pod might land on (profiles are node-local, not in the API server). If the profile is missing, the kubelet refuses to start the pod.\n- AppArmor must be enabled in the kernel: check `cat /sys/module/apparmor/parameters/enabled` returns `Y` (or `aa-enabled`).\n- Profile rule syntax is strict: every rule ends with a comma; `deny` lines, globs (`**` recursive, `*` single level), and permission flags (`r w a x m l k`) all matter.\n\nThis step is **RUNTIME**: `apparmor_parser` and the kernel LSM must exist on the host. We validate that the profile file is present on the node with the correct `deny ... w,` rule.",
+      "prompt": "On worker node `$W1`, create an AppArmor profile file at `/etc/apparmor.d/k8s-deny-write` with profile name `k8s-deny-write` that **denies all writes** to files under `/etc/secret-data/`, then load it with `apparmor_parser`.\n\nTarget: the file `/etc/apparmor.d/k8s-deny-write` exists on `$W1` and contains a `deny` write rule for `/etc/secret-data/`.",
+      "hint": "Use a heredoc through `docker exec -i \"$W1\" tee /etc/apparmor.d/k8s-deny-write`. The profile body: `#include <tunables/global>` then `profile k8s-deny-write flags=(attach_disconnected) { #include <abstractions/base>\\n  file,\\n  deny /etc/secret-data/** w,\\n}`. Load with `docker exec \"$W1\" apparmor_parser -r -W /etc/apparmor.d/k8s-deny-write`.",
+      "solution": "docker exec -i \"$W1\" tee /etc/apparmor.d/k8s-deny-write >/dev/null <<'EOF'\n#include <tunables/global>\n\nprofile k8s-deny-write flags=(attach_disconnected) {\n  #include <abstractions/base>\n\n  file,\n\n  # Deny all writes under /etc/secret-data/\n  deny /etc/secret-data/** w,\n}\nEOF\ndocker exec \"$W1\" apparmor_parser -r -W /etc/apparmor.d/k8s-deny-write\n# verify loaded (runtime, needs AppArmor host):\ndocker exec \"$W1\" sh -c 'aa-status | grep k8s-deny-write || cat /sys/kernel/security/apparmor/profiles | grep k8s-deny-write'",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "profile /etc/apparmor.d/k8s-deny-write with a deny-write rule exists on $W1",
+          "script": "validate/q1_s1.sh",
+          "weightage": 25
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Reference the profile from a pod",
+      "teach": "A pod tells the kubelet which AppArmor profile to apply **per-container**. On modern Kubernetes (1.30+, GA) use the typed field `securityContext.appArmorProfile`; the pre-1.30 way was an **annotation** — recognise both because old exam docs/manifests still use annotations.\n\n**appArmorProfile `type` values** — the three you must know:\n- `Localhost` — use a profile already loaded on the node; requires `localhostProfile: <profile-name>` (here `k8s-deny-write`). The value is the **profile name**, *not* a file path.\n- `RuntimeDefault` — apply the container runtime's default AppArmor profile; no name needed.\n- `Unconfined` — disable AppArmor for the container (no confinement).\n\n**Pod-level vs container-level** — `appArmorProfile` can be set under `spec.securityContext` (pod-level default for all containers) **or** `spec.containers[].securityContext` (container-level, which overrides the pod-level value). The beta annotation was container-only.\n\n**Equivalent annotation** (deprecated since 1.30; still read for backward compatibility, but the typed `appArmorProfile` field takes precedence): `container.apparmor.security.beta.kubernetes.io/<container-name>: localhost/<profile-name>` — note the `localhost/` prefix and that it's keyed by **container name**.\n\n**GOTCHAS**\n- `localhost` means “a profile already present on this node” — which is why Step 1 had to load it. If the profile isn't loaded, the pod stays **Blocked/won't start** (describe shows the reason).\n- The pod must be **scheduled onto the node that has the profile** — here we pin it with `nodeName: $W1` (bypasses the scheduler). In the real world you'd load the profile on all candidate nodes instead.\n- Don't mix the typed field and the annotation on the same container with conflicting values.\n- The annotation's `<container-name>` suffix and the `localhost/` prefix are easy to typo — a mistake silently leaves the container unconfined (annotation) or blocks the pod.",
+      "prompt": "In namespace `cks-apparmor`, create a pod `confined` pinned to node `$W1`, image `busybox:1.36`, command `sleep 3600`, whose container `hello` references the **localhost** AppArmor profile `k8s-deny-write`.\n\nTarget: pod `confined` is on `$W1` and its container requests the localhost profile `k8s-deny-write` (via `appArmorProfile` or the beta annotation).",
+      "hint": "Set `spec.containers[0].securityContext.appArmorProfile: { type: Localhost, localhostProfile: k8s-deny-write }` and `spec.nodeName: $W1`. (Equivalent annotation: `container.apparmor.security.beta.kubernetes.io/hello: localhost/k8s-deny-write`.)",
+      "solution": "cat <<YAML | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: confined\n  namespace: cks-apparmor\nspec:\n  nodeName: $W1\n  containers:\n  - name: hello\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      appArmorProfile:\n        type: Localhost\n        localhostProfile: k8s-deny-write\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod 'confined' on $W1 references localhost profile k8s-deny-write",
+          "script": "validate/q2_s1.sh",
+          "weightage": 25
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Verify the confinement blocks a write",
+      "teach": "On an AppArmor-capable node the loaded profile actually **blocks** the denied action. Prove it: run a write inside the confined pod and record the result — a real host returns `Permission denied`. (On this Mac there's no AppArmor, so the write would succeed — that's why this is a requires-host step.)\n\n**Ways to verify confinement is active:**\n- Trigger the denied operation from inside the pod: `kubectl exec <pod> -- sh -c 'touch /etc/secret-data/x'` → expect `Permission denied` (exit non-zero).\n- `kubectl get pod <pod> -o jsonpath='{.spec.containers[0].securityContext.appArmorProfile}'` — confirm the spec still requests the profile.\n- On the node: `aa-status` lists the profile in **enforce** mode; denials are logged to the kernel audit log — `dmesg | grep -i apparmor` or `/var/log/audit/audit.log` shows `apparmor=\"DENIED\"` entries with `operation=`, `profile=`, `name=`.\n\n**GOTCHAS**\n- A profile in **complain** mode logs the violation but does **not** block it — the write succeeds. Check the mode with `aa-status` if an expected denial doesn't happen.\n- The deny rule is **path-based**: `deny /etc/secret-data/** w,` blocks writes under that exact path only. A write to `/tmp` is *not* covered by that rule and may succeed (depending on the base profile). Match the test path to the rule you wrote.\n- If the profile isn't loaded on the node, the pod never starts — you'd see a kubelet error, not a `Permission denied` from inside a running container.\n- `type: RuntimeDefault` or `Unconfined` would not enforce your custom rule — only `Localhost` with the right profile name does.",
+      "prompt": "Run a write to the **protected** path inside the `confined` pod (`touch /etc/secret-data/x`) and capture its output into a ConfigMap `apparmor-proof` (key `result`) in `cks-apparmor`.\n\nTarget: ConfigMap `apparmor-proof` exists and its `result` shows the write was denied (contains `Permission denied`).",
+      "hint": "`kubectl -n cks-apparmor create configmap apparmor-proof --from-literal=result=\"$(kubectl -n cks-apparmor exec confined -- sh -c 'touch /etc/secret-data/x' 2>&1)\"` — write to a path the profile denies (`/etc/secret-data/`), not `/tmp` (which the profile allows).",
+      "solution": "kubectl -n cks-apparmor create configmap apparmor-proof \\\n  --from-literal=result=\"$(kubectl -n cks-apparmor exec confined -- sh -c 'touch /etc/secret-data/x' 2>&1)\"\n# on an AppArmor host the result is: touch: /etc/secret-data/x: Permission denied",
+      "verification": [
+        {
+          "id": "1",
+          "description": "confined container still bound to profile k8s-deny-write (enforcement needs host)",
+          "script": "validate/q3_s1.sh",
+          "weightage": 25
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Contrast: unconfined vs confined",
+      "teach": "To appreciate what AppArmor buys you, compare two pods. A container with **no** AppArmor setting (or `type: Unconfined`) runs under the host's default/unconfined policy — the write to `/etc/secret-data/` would **succeed**. The confined pod from Step 2 blocks it.\n\n**Three ways a container ends up unconfined** (recognise each):\n- No `appArmorProfile` and no annotation at all → whatever the runtime defaults to (often `RuntimeDefault` or unconfined depending on config).\n- `appArmorProfile.type: Unconfined` → explicitly disabled.\n- Annotation `container.apparmor.security.beta.kubernetes.io/<c>: unconfined`.\n\n**Inspecting pods quickly** (exam reflexes):\n- `kubectl get pod <p> -o jsonpath='{.spec.containers[0].securityContext.appArmorProfile}'` — prints the typed field (empty for unconfined).\n- `kubectl get pod <p> -o yaml | grep -i apparmor` — catches *both* the typed field and the beta annotation.\n- Across a namespace: `kubectl get pods -o custom-columns=NAME:.metadata.name,APP:'.spec.containers[*].securityContext.appArmorProfile.localhostProfile'`.\n\n**GOTCHAS**\n- An empty jsonpath result is ambiguous — it could mean unconfined *or* that the setting lives in the beta annotation instead of the typed field. Always check both.\n- `Unconfined` on one container does **not** affect sibling containers — AppArmor is per-container.\n- A pod-level `appArmorProfile` applies to every container *unless* a container overrides it; so “unconfined” at container level can still override a confining pod-level default.\n- Least privilege means the profile is applied **deliberately**, not everywhere by accident — the exam tests that you can confirm exactly which workloads carry a restrictive profile.",
+      "prompt": "In namespace `cks-apparmor`, create a second pod `unconfined` on node `$W1`, image `busybox:1.36`, command `sleep 3600`, with **no** AppArmor localhost profile (leave it unset, or set `type: Unconfined`).\n\nTarget: `unconfined` does NOT reference `k8s-deny-write`, while `confined` (Step 2) still does — the two pods differ in their AppArmor setting.",
+      "hint": "Just omit the `appArmorProfile`/annotation on `unconfined` (or set `appArmorProfile.type: Unconfined`). The validator confirms `confined` has the localhost profile and `unconfined` does not.",
+      "solution": "cat <<YAML | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: unconfined\n  namespace: cks-apparmor\nspec:\n  nodeName: $W1\n  containers:\n  - name: hello\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nYAML\n# Compare:\nkubectl -n cks-apparmor get pod confined   -o jsonpath='{.spec.containers[0].securityContext.appArmorProfile}{\"\\n\"}'\nkubectl -n cks-apparmor get pod unconfined -o jsonpath='{.spec.containers[0].securityContext.appArmorProfile}{\"\\n\"}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "confined uses k8s-deny-write; unconfined does not (the two differ)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 25
+        }
+      ]
+    }
+  ]
+}

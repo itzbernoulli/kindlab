@@ -1,0 +1,103 @@
+{
+  "id": "cka-nodeops",
+  "name": "CKA Node & Component Troubleshooting",
+  "category": "CKA",
+  "description": "Hands-on node-level operations you can't practice in CK-X: bring a NotReady node back, repair a crash-looping control-plane component, uncordon/cordon/drain nodes, run a static pod on the control-plane, and schedule a tolerating pod onto a tainted node.",
+  "objective": "CKA \u203a Troubleshooting (30%). Prove you can recover a cluster: NotReady nodes, broken components, uncordon, static pods, drain, and taints.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Recover a NotReady node",
+      "prompt": "Worker node `$W1` (run `kindlab up` to see node names \u2014 e.g. `kindlab-worker`) shows **NotReady** \u2014 its kubelet has stopped.\n\nBring the node back so it reports **Ready** again.\n\n_Hint:_ `docker exec -it $W1 bash`, then restart the kubelet with `systemctl start kubelet` (check status with `systemctl status kubelet`). The node returns to `Ready` within ~15s.",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Node $W1 is Ready",
+          "script": "validate/q1_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Repair the kube-controller-manager",
+      "prompt": "The **kube-controller-manager** is down \u2014 a bad flag was added to its static pod manifest on the control-plane node, so it crash-loops.\n\nFind and fix it (the manifest is `/etc/kubernetes/manifests/kube-controller-manager.yaml` on `$CP`) so the component becomes healthy again.\n\n_Hint:_ `docker exec -it $CP bash`, inspect the manifest, remove the bogus flag; the kubelet restarts the static pod automatically within ~15s.",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kube-controller-manager static pod is Ready again",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Uncordon a node",
+      "prompt": "Node `$W1` was cordoned during earlier maintenance and is still **unschedulable**. Bring it back into service so the scheduler can place pods on it again.\n\n_Hint:_ `kubectl uncordon $W1` clears `spec.unschedulable`.",
+      "setup": "setup/q3_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Node $W1 is schedulable (not cordoned)",
+          "script": "validate/q3_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Static pod on the control-plane",
+      "prompt": "On the control-plane node `$CP`, create a **static pod** named `cp-web` using image `nginx:alpine` by placing a manifest in `/etc/kubernetes/manifests/` on that node.\n\nThe kubelet will create a read-only **mirror pod** named `cp-web-$CP` in the `default` namespace. Verify it is Running.\n\n_Hint:_ `docker exec -it $CP bash`, then write the manifest; the pod name in the manifest should be `cp-web`.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Mirror pod cp-web-$CP is Running",
+          "script": "validate/q4_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Drain a node",
+      "prompt": "A Deployment named `draintest` (3 replicas) is running in the `default` namespace. Node `$W2` needs maintenance.\n\n**Drain** `$W2`, ignoring DaemonSets, so that all `draintest` pods are evicted from it and it becomes unschedulable.\n\n_Hint:_ `kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data`. Drain cordons the node first, then evicts the workloads; the Deployment reschedules them onto other nodes.",
+      "setup": "setup/q5_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Node $W2 is cordoned (unschedulable)",
+          "script": "validate/q5_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "No draintest pods remain on $W2",
+          "script": "validate/q5_s2.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Taint a node and schedule a tolerating pod",
+      "prompt": "Reserve node `$W1` for batch workloads.\n\n1. Add the taint `workload=batch:NoSchedule` to node `$W1`.\n2. Create a pod named `batch` in the `default` namespace using image `busybox:1.36` running `sleep 3600`, that **tolerates** this taint and is scheduled onto `$W1`.\n\n_Hint:_ `kubectl taint nodes $W1 workload=batch:NoSchedule`, then give the pod a matching toleration (key `workload`, value `batch`, effect `NoSchedule`) and pin it to `$W1` with `nodeName` or a nodeSelector.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Node $W1 has the workload=batch:NoSchedule taint",
+          "script": "validate/q6_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "Pod 'batch' is Running on $W1",
+          "script": "validate/q6_s2.sh",
+          "weightage": 7
+        }
+      ]
+    }
+  ]
+}

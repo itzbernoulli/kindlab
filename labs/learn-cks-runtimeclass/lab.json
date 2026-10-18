@@ -1,0 +1,90 @@
+{
+  "id": "learn-cks-runtimeclass",
+  "name": "Learn: RuntimeClass (sandboxing)",
+  "category": "CKS",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities (20%). Goal: use RuntimeClass to select a sandboxed container runtime (e.g. gVisor/runsc or Kata) for sensitive workloads, and combine it with capability-dropping + non-root hardening — the microservice-isolation tasks that appear on the CKS.",
+  "description": "Learn how RuntimeClass lets you run sensitive pods on a stronger-isolation runtime (a gVisor or Kata sandbox) instead of the default runc, step by step — then layer capability-dropping and non-root on top for defence in depth.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Create a RuntimeClass",
+      "teach": "A **RuntimeClass** is a **cluster-scoped** object (`apiVersion: node.k8s.io/v1`, `kind: RuntimeClass`) that names a container runtime the kubelet can use to run a pod.\n\n**Anatomy of the object**\n- **`handler`** (required, **top-level — NOT under `spec`**): a string the node's CRI (containerd/CRI-O) maps to a configured runtime binary. gVisor uses `runsc` (a user-space kernel that intercepts syscalls); Kata runs each pod in a lightweight micro-VM.\n- **`scheduling`** (optional): `nodeSelector` + `tolerations` so pods using this class land only on nodes that actually have the runtime (and tolerate their taints).\n- **`overhead.podFixed`** (optional): extra CPU/memory the sandbox itself consumes, factored into scheduling/eviction.\n\n**How a pod uses it:** `pod.spec.runtimeClassName: <name>` (covered in the next step).\n\n**Exam gotchas**\n- `handler` is a **top-level field**, a classic trap is nesting it under `spec` (there is no `spec`).\n- Creating the RuntimeClass object does **NOT** install the runtime — it only declares a name pods can request. The node must have that handler configured separately in the CRI (e.g. a `[plugins.\"io.containerd.grpc.v1.cri\".containerd.runtimes.runsc]` block in containerd).\n- If the handler isn't configured on the chosen node, the pod fails to start (events show a runtime/handler error) — the RuntimeClass object existing is not enough.\n- RuntimeClass is **cluster-scoped**, so no `-n namespace`; names are unique cluster-wide.",
+      "prompt": "Create a cluster-scoped RuntimeClass named `gvisor` whose `handler` is `runsc`.\n\nTarget: `kubectl get runtimeclass gvisor` exists and its `.handler` is `runsc`.",
+      "hint": "RuntimeClass is `apiVersion: node.k8s.io/v1`, `kind: RuntimeClass`, with `metadata.name` and a top-level `handler:` field (handler is NOT under spec). Apply it with `kubectl apply -f -`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: node.k8s.io/v1\nkind: RuntimeClass\nmetadata:\n  name: gvisor\nhandler: runsc\nYAML\nkubectl get runtimeclass gvisor -o jsonpath='{.handler}'   # runsc",
+      "verification": [
+        {
+          "id": "1",
+          "description": "RuntimeClass 'gvisor' exists with handler 'runsc'",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Run a pod on that RuntimeClass",
+      "teach": "A pod opts into a RuntimeClass via **`spec.runtimeClassName: <name>`** (a pod-level field — it applies to the whole pod, not per-container). At schedule time the kubelet asks the CRI to run the pod with that handler.\n\n**Ways to set it**\n- Plain YAML with `spec.runtimeClassName`.\n- `kubectl run` has no first-class flag, so inject it with `--overrides='{\"spec\":{\"runtimeClassName\":\"gvisor\"}}'` (pair with `--command -- sleep 3600`).\n- Or generate a skeleton (`kubectl run ... --dry-run=client -o yaml`) and add the field.\n\n**Exam gotchas**\n- The field is `runtimeClassName` (camelCase) directly under `spec`, **not** inside a container and **not** `runtimeClass`.\n- It is **immutable** on a running pod — you must delete and recreate the pod to change it (there's no `kubectl edit` path, unlike a Deployment template).\n- If the handler isn't configured on the node, the pod stays `Pending`/`ContainerCreating` or errors; the *spec field* is still what you author and what gets graded.\n- A RuntimeClass with a `scheduling.nodeSelector` will also constrain where the pod can land — the pod effectively inherits those node requirements.\n\nIn this lab the `runsc` binary is NOT installed on the kind node, so the pod may stay `Pending`/`ContainerCreating`. That's expected — we only validate that you requested the runtime, not that it ran.",
+      "prompt": "In namespace `runtimeclass-learn`, create a pod named `sandboxed` (image `busybox:1.36`, command `sleep 3600`) that requests the `gvisor` RuntimeClass via `spec.runtimeClassName`.\n\nTarget: pod `sandboxed` has `.spec.runtimeClassName` = `gvisor`. (Do NOT expect it to be Running — the runsc handler is absent on this node.)",
+      "hint": "`kubectl run` supports `--overrides` to inject arbitrary spec fields: `--overrides='{\"spec\":{\"runtimeClassName\":\"gvisor\"}}'`. Or write the pod YAML with `spec.runtimeClassName: gvisor`.",
+      "solution": "kubectl run sandboxed -n runtimeclass-learn --image=busybox:1.36 --overrides='{\"spec\":{\"runtimeClassName\":\"gvisor\"}}' --command -- sleep 3600\nkubectl get pod sandboxed -n runtimeclass-learn -o jsonpath='{.spec.runtimeClassName}'   # gvisor",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod 'sandboxed' requests runtimeClassName 'gvisor'",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Contrast with an un-sandboxed pod",
+      "teach": "The whole point of RuntimeClass is **isolation selection per workload**.\n\n**The isolation spectrum**\n- **No `runtimeClassName`** → the node's default runtime (usually `runc`): the container shares the host kernel directly. Fastest, weakest boundary.\n- **gVisor (`runsc`)** → a user-space kernel intercepts syscalls, so a kernel exploit in the container can't reach the host kernel. Small per-syscall overhead; some syscalls unsupported.\n- **Kata Containers (`kata`)** → each pod gets its own guest kernel inside a lightweight micro-VM — the strongest boundary, at the cost of VM overhead.\n\nSandbox only the *sensitive* workloads and leave the rest on the default runtime for speed — the two pods should differ in their `runtimeClassName`.\n\n**Exam gotchas**\n- Leaving `runtimeClassName` **unset** and setting it to `\"\"` both resolve to the node's default runtime — they behave identically; just omit the field for \"use the default\".\n- RuntimeClass selects the *runtime* boundary; it is orthogonal to (and stacks with) `securityContext`, NetworkPolicy, and Pod Security Admission — defence in depth, not a replacement.\n- `kubectl get pod <p> -o jsonpath='{.spec.runtimeClassName}'` returns empty for a default-runtime pod — that empty string is the expected \"normal\" state here.",
+      "prompt": "In `runtimeclass-learn`, create a second pod named `normal` (image `busybox:1.36`, command `sleep 3600`) with **no** `runtimeClassName` (default runtime).\n\nTarget: `sandboxed`'s `.spec.runtimeClassName` is `gvisor` while `normal`'s is empty — the two differ.",
+      "hint": "Just `kubectl run normal -n runtimeclass-learn --image=busybox:1.36 --command -- sleep 3600` (no overrides). Leaving runtimeClassName unset means the default runtime.",
+      "solution": "kubectl run normal -n runtimeclass-learn --image=busybox:1.36 --command -- sleep 3600\nkubectl get pod normal    -n runtimeclass-learn -o jsonpath='{.spec.runtimeClassName}'   # (empty)\nkubectl get pod sandboxed -n runtimeclass-learn -o jsonpath='{.spec.runtimeClassName}'   # gvisor",
+      "verification": [
+        {
+          "id": "1",
+          "description": "'sandboxed' uses gvisor, 'normal' uses the default runtime (they differ)",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Harden the sandboxed pod (defence in depth)",
+      "teach": "A sandbox is one layer — combine it with standard **securityContext** hardening for defence in depth. For the sensitive pod here you:\n\n- **drop ALL Linux capabilities** (`securityContext.capabilities.drop: [\"ALL\"]`), re-adding only what's truly needed with `add: [\"NET_BIND_SERVICE\"]`, and\n- **run as non-root** (`runAsNonRoot: true`, plus a non-zero `runAsUser`).\n\n**Pod-level vs container-level (the key distinction)**\n- `spec.securityContext` is **pod-level**; `spec.containers[].securityContext` is **container-level**. When both set the same field, the **container value wins**.\n- **Pod-level only:** `fsGroup`, `fsGroupChangePolicy`, `supplementalGroups`, `sysctls`.\n- **Container-level only:** `capabilities`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation`, `privileged`, `procMount`.\n- **Either level:** `runAsUser`, `runAsGroup`, `runAsNonRoot`, `seLinuxOptions`, `seccompProfile`.\n\n**Other hardening fields worth knowing**\n- `allowPrivilegeEscalation: false` (blocks gaining new privs via setuid binaries).\n- `readOnlyRootFilesystem: true` — remember to mount a writable `emptyDir` for `/tmp` or wherever the app writes.\n- `seccompProfile.type`: `RuntimeDefault` / `Localhost` (needs `localhostProfile`) / `Unconfined`.\n- `runAsNonRoot: true` vs `runAsUser: 1000`: the former only *asserts* non-root and fails the container at start if the image's user is uid 0; the latter actually *sets* the uid. Use both.\n\n**Exam gotchas**\n- `capabilities` and `readOnlyRootFilesystem` **must** go on the container, not the pod — putting them pod-level is a silent no-op/validation error.\n- `drop: [\"ALL\"]` then `add` back the few you need — order of drop-then-add is how you minimise capabilities.\n- `runAsNonRoot: true` with an image that only runs as root (and no `runAsUser`) → `CreateContainerConfigError`.\n- RuntimeClass is a **pod-level** field; keep `spec.runtimeClassName: gvisor` when you recreate the pod to harden it.",
+      "prompt": "Replace pod `sandboxed` in `runtimeclass-learn` so it still requests `runtimeClassName: gvisor` AND its container drops **ALL** capabilities and runs non-root (`runAsNonRoot: true`, `runAsUser: 1000`). Keep image `busybox:1.36`, command `sleep 3600`.\n\nTarget: pod `sandboxed` has runtimeClassName `gvisor`, `runAsNonRoot: true`, and its container's `capabilities.drop` contains `ALL`.",
+      "hint": "Delete and recreate with a YAML that has `spec.runtimeClassName: gvisor`, `spec.securityContext.runAsNonRoot: true` + `runAsUser: 1000`, and the container's `securityContext.capabilities.drop: [\"ALL\"]`. busybox sleep runs fine as uid 1000.",
+      "solution": "kubectl delete pod sandboxed -n runtimeclass-learn --ignore-not-found\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: sandboxed\n  namespace: runtimeclass-learn\nspec:\n  runtimeClassName: gvisor\n  securityContext:\n    runAsNonRoot: true\n    runAsUser: 1000\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      capabilities:\n        drop: [\"ALL\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "'sandboxed' keeps gvisor AND drops ALL caps + runs non-root",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Offer a second runtime (Kata)",
+      "teach": "A cluster can expose **several** RuntimeClasses so workloads pick the isolation they need — e.g. `gvisor` (handler `runsc`) for syscall sandboxing and `kata` (handler `kata`) for full micro-VM isolation. `kubectl get runtimeclass` lists them all; each is just a name → handler mapping.\n\n**Design points when offering multiple classes**\n- The **RuntimeClass name** (what pods reference via `runtimeClassName`) is independent of the **`handler`** (what the CRI maps to a binary) — you can name a class anything; the handler must match the node config. Multiple classes may even share a handler.\n- Use `scheduling.nodeSelector`/`tolerations` per class to pin each runtime to the nodes that actually have it (e.g. only sandbox-capable nodes carry the `runsc`/`kata` binaries).\n- Set `overhead.podFixed` per class so the scheduler accounts for each sandbox's real resource cost.\n\n**Exam gotchas**\n- Adding a RuntimeClass object is cheap and safe (it declares a choice); whether a node can honour a given handler depends on that node's runtime configuration — an unconfigured handler means pods using it won't start.\n- RuntimeClass is cluster-scoped: no namespace, and the two objects here (`gvisor`, `kata`) coexist independently.\n- Don't confuse the two strings: `kata`'s class name and its handler happen to both be `kata` here, but they are conceptually separate fields.",
+      "prompt": "Create a second RuntimeClass named `kata` whose `handler` is `kata`.\n\nTarget: `kubectl get runtimeclass` lists both `gvisor` and `kata`, and `kata`'s `.handler` is `kata`.",
+      "hint": "Same shape as step 1: `apiVersion: node.k8s.io/v1`, `kind: RuntimeClass`, `metadata.name: kata`, top-level `handler: kata`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: node.k8s.io/v1\nkind: RuntimeClass\nmetadata:\n  name: kata\nhandler: kata\nYAML\nkubectl get runtimeclass   # gvisor + kata",
+      "verification": [
+        {
+          "id": "1",
+          "description": "RuntimeClass 'kata' exists with handler 'kata'",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ]
+    }
+  ]
+}

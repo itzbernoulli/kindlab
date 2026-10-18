@@ -1,0 +1,136 @@
+{
+  "id": "ckad-exam-1",
+  "name": "CKAD Practice Exam — Core",
+  "category": "CKAD",
+  "type": "exam",
+  "objective": "CKAD across all four domains — Application Design & Build (20%), Deployment (20%), Observability & Maintenance (15%), Environment/Config/Security (25%), Services & Networking (20%). Goal: under exam conditions build and operate workloads end to end — Deployments and rollouts, multi-container and init patterns, ConfigMaps/Secrets, probes and resources, Services (ClusterIP/NodePort), Ingress, NetworkPolicy, Jobs/CronJobs, ServiceAccounts, and pod securityContext.",
+  "description": "A timed-style, no-hints practice exam covering the core CKAD skills. Work in the namespace stated by each task. Everything is object-level — plain kubectl against the cluster, no node access. Weightages sum to 100.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Deployment with replicas and scaling",
+      "prompt": "In namespace `exam`, create a Deployment named `web` using image `nginx:1.25` with **4** replicas. The pod template must carry the label `app=web`. After it is up, scale the Deployment to **6** replicas and ensure all 6 are available.",
+      "verification": [
+        { "id": "1", "description": "Deployment web exists with image nginx:1.25 and pod label app=web", "script": "validate/q1_s1.sh", "weightage": 3 },
+        { "id": "2", "description": "Deployment web scaled to 6 available replicas", "script": "validate/q1_s2.sh", "weightage": 4 }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Rolling update to a new image",
+      "prompt": "A Deployment named `roller` (image `nginx:1.24`) already runs in namespace `exam`. Update its container image to `nginx:1.25` and roll it out so the new image is fully live (all replicas updated and available).",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        { "id": "1", "description": "roller is running nginx:1.25 on all available replicas after rollout", "script": "validate/q2_s1.sh", "weightage": 7 }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Multi-container pod sharing an emptyDir",
+      "prompt": "In namespace `exam`, create a pod named `sidecar` with **two** containers sharing one `emptyDir` volume mounted at `/data` in both:\n\n- container `writer` (image `busybox:1.36`) running: `sh -c 'while true; do date >> /data/out.txt; sleep 5; done'`\n- container `reader` (image `busybox:1.36`) running: `sh -c 'tail -f /data/out.txt'`\n\nBoth containers must mount the same volume at `/data`. The pod must be Running.",
+      "verification": [
+        { "id": "1", "description": "Pod sidecar has 2 containers both mounting a shared emptyDir at /data and is Running", "script": "validate/q3_s1.sh", "weightage": 7 }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Init container pattern",
+      "prompt": "In namespace `exam`, create a pod named `initdemo`. It must have an **init container** named `setup` (image `busybox:1.36`) that runs `sh -c 'echo ready > /work/status'` and a main container named `app` (image `busybox:1.36`) that runs `sh -c 'cat /work/status && sleep 3600'`. A single `emptyDir` named `work` must be mounted at `/work` in both. The pod must reach Running with the init container Completed.",
+      "verification": [
+        { "id": "1", "description": "Pod initdemo has init container 'setup', shared /work volume, and is Running", "script": "validate/q4_s1.sh", "weightage": 7 }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "ConfigMap and Secret wired into a pod",
+      "prompt": "In namespace `exam`:\n\n1. Create a ConfigMap named `app-cfg` with key `APP_MODE=production`.\n2. Create a Secret (Opaque) named `app-sec` with key `API_KEY=s3cr3t`.\n3. Create a pod named `consumer` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) that:\n   - sets env var `APP_MODE` from the ConfigMap key `APP_MODE`\n   - mounts the Secret `app-sec` as a volume at `/etc/secret` (read path, e.g. file `/etc/secret/API_KEY`).\n\nThe pod must be Running.",
+      "verification": [
+        { "id": "1", "description": "ConfigMap app-cfg and Secret app-sec exist with the right keys/values", "script": "validate/q5_s1.sh", "weightage": 4 },
+        { "id": "2", "description": "Pod consumer has APP_MODE env from configmap and secret mounted at /etc/secret", "script": "validate/q5_s2.sh", "weightage": 4 }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Resource requests and limits",
+      "prompt": "In namespace `exam`, create a pod named `limited` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) whose container sets resource **requests** `cpu=100m, memory=64Mi` and **limits** `cpu=250m, memory=128Mi`. The pod must be Running.",
+      "verification": [
+        { "id": "1", "description": "Pod limited has the exact requests and limits and is Running", "script": "validate/q6_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Liveness and readiness probes",
+      "prompt": "In namespace `exam`, create a pod named `probed` using image `nginx:1.25` (container port 80) with both:\n\n- a **liveness** probe: HTTP GET `/` on port `80`, `initialDelaySeconds: 5`, `periodSeconds: 10`\n- a **readiness** probe: HTTP GET `/` on port `80`, `initialDelaySeconds: 5`, `periodSeconds: 10`\n\nThe pod must become Ready.",
+      "verification": [
+        { "id": "1", "description": "Pod probed has HTTP liveness + readiness probes on port 80 and is Ready", "script": "validate/q7_s1.sh", "weightage": 7 }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "ClusterIP Service for a deployment",
+      "prompt": "In namespace `exam`, a Deployment named `clip` (image `nginx:1.25`, label `app=clip`, container port 80) already runs. Create a **ClusterIP** Service named `clip-svc` that selects `app=clip`, exposing port `80` → targetPort `80`. The Service must have at least one ready endpoint.",
+      "setup": "setup/q8_setup.sh",
+      "verification": [
+        { "id": "1", "description": "Service clip-svc is ClusterIP selecting app=clip with ready endpoints", "script": "validate/q8_s1.sh", "weightage": 7 }
+      ]
+    },
+    {
+      "id": "9",
+      "title": "NodePort Service on a specific port",
+      "prompt": "In namespace `exam`, a Deployment named `np` (image `nginx:1.25`, label `app=np`, container port 80) already runs. Create a **NodePort** Service named `np-svc` selecting `app=np`, port `80` → targetPort `80`, with nodePort fixed to **30080**. The Service must have at least one ready endpoint.",
+      "setup": "setup/q9_setup.sh",
+      "verification": [
+        { "id": "1", "description": "Service np-svc is NodePort on 30080 selecting app=np with endpoints", "script": "validate/q9_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "10",
+      "title": "Ingress host/path rule",
+      "prompt": "In namespace `exam`, create an Ingress named `shop-ing` that routes host `shop.example.com`, path `/` (pathType `Prefix`) to Service `clip-svc` on port `80`. (The Service exists from task 8.)",
+      "verification": [
+        { "id": "1", "description": "Ingress shop-ing routes shop.example.com/ to clip-svc:80", "script": "validate/q10_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "11",
+      "title": "NetworkPolicy: default-deny + allow-from-label",
+      "prompt": "In namespace `exam` create two NetworkPolicies:\n\n1. `default-deny` — selects **all** pods (empty podSelector) and denies all **ingress** (policyTypes: Ingress, no ingress rules).\n2. `allow-web` — selects pods with label `app=clip` and allows ingress **only** from pods carrying label `role=frontend`.\n\nBoth must exist in namespace `exam`.",
+      "verification": [
+        { "id": "1", "description": "default-deny selects all pods and denies all ingress", "script": "validate/q11_s1.sh", "weightage": 4 },
+        { "id": "2", "description": "allow-web permits ingress to app=clip only from role=frontend", "script": "validate/q11_s2.sh", "weightage": 4 }
+      ]
+    },
+    {
+      "id": "12",
+      "title": "Job with completions and parallelism",
+      "prompt": "In namespace `exam`, create a Job named `pi-job` (image `busybox:1.36`, command `sh -c 'echo done'`) with `completions: 4` and `parallelism: 2`. Let it finish; it must reach 4 successful completions.",
+      "verification": [
+        { "id": "1", "description": "Job pi-job has completions=4, parallelism=2 and succeeded 4 times", "script": "validate/q12_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "13",
+      "title": "CronJob with a schedule",
+      "prompt": "In namespace `exam`, create a CronJob named `beat` with schedule `*/5 * * * *` whose job template runs a single container (image `busybox:1.36`, command `sh -c 'date'`). The CronJob must exist with exactly that schedule.",
+      "verification": [
+        { "id": "1", "description": "CronJob beat exists with schedule */5 * * * * and the right image", "script": "validate/q13_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "14",
+      "title": "ServiceAccount used by a pod",
+      "prompt": "In namespace `exam`, create a ServiceAccount named `app-sa`. Then create a pod named `sa-pod` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) that runs under ServiceAccount `app-sa`. The pod must be Running.",
+      "verification": [
+        { "id": "1", "description": "ServiceAccount app-sa exists and pod sa-pod runs under it", "script": "validate/q14_s1.sh", "weightage": 6 }
+      ]
+    },
+    {
+      "id": "15",
+      "title": "Pod securityContext: runAsNonRoot + drop caps",
+      "prompt": "In namespace `exam`, create a pod named `hardened` (image `busybox:1.36`, command `sh -c 'sleep 3600'`) whose container securityContext sets `runAsNonRoot: true`, `runAsUser: 1000`, `allowPrivilegeEscalation: false`, and `capabilities.drop: [\"ALL\"]`. The pod must be Running.",
+      "verification": [
+        { "id": "1", "description": "Pod hardened runs non-root (uid 1000), no priv-esc, drops ALL caps, is Running", "script": "validate/q15_s1.sh", "weightage": 6 }
+      ]
+    }
+  ]
+}

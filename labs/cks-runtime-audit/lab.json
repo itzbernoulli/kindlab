@@ -1,0 +1,125 @@
+{
+  "id": "cks-runtime-audit",
+  "name": "CKS Runtime, Seccomp & Audit",
+  "category": "CKS",
+  "description": "Node-level runtime security you can't practice in CK-X: custom + RuntimeDefault seccomp profiles, read-only root filesystems, API server audit logging, etcd encryption at rest, and ServiceAccount token hardening \u2014 all against a real multi-node cluster with node access.",
+  "objective": "CKS \u203a Runtime Security, Supply-chain & Hardening. Prove you can configure seccomp, API audit logging, and etcd encryption at rest.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Custom (Localhost) seccomp profile",
+      "prompt": "Confine a workload with a **custom seccomp profile** loaded from the node.\n\n1. On worker node `$W1`, place a seccomp profile JSON at `/var/lib/kubelet/seccomp/profiles/audit.json`. The kubelet's seccomp root is `/var/lib/kubelet/seccomp`, so the profile's *localhost* path is `profiles/audit.json`. A simple auditing profile (default action `SCMP_ACT_LOG`) is fine.\n2. Create a pod named `seccomp-audit` in namespace `default` using image `busybox:1.36` running `sleep 3600`, pinned to node `$W1` (via `nodeName` or `nodeSelector`), with a `seccompProfile` of type `Localhost` and `localhostProfile: profiles/audit.json`.\n\nThe pod must be **Running**.\n\n_Hint:_ `docker exec -it $W1 bash` to create the profile file; set `spec.securityContext.seccompProfile` (or the container's `securityContext.seccompProfile`).",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Seccomp profile JSON present at /var/lib/kubelet/seccomp/profiles/audit.json on the worker",
+          "script": "validate/q1_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "Pod seccomp-audit references the Localhost profile profiles/audit.json",
+          "script": "validate/q1_s2.sh",
+          "weightage": 8
+        },
+        {
+          "id": "3",
+          "description": "Pod seccomp-audit is Running on the worker",
+          "script": "validate/q1_s3.sh",
+          "weightage": 6
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "RuntimeDefault seccomp profile",
+      "prompt": "Create a pod named `seccomp-default` in namespace `default` using image `busybox:1.36` running `sleep 3600`, whose `securityContext.seccompProfile.type` is **`RuntimeDefault`** (the container runtime's default profile \u2014 the baseline CKS expects on every workload).\n\nThe pod must be **Running**.\n\n_Hint:_ set `spec.securityContext.seccompProfile.type: RuntimeDefault`.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Pod seccomp-default uses seccompProfile type RuntimeDefault and is Running",
+          "script": "validate/q2_s1.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Read-only root filesystem",
+      "prompt": "Create a pod named `readonly-root` in namespace `default` using image `busybox:1.36` running `sleep 3600` with a container `securityContext.readOnlyRootFilesystem: true`.\n\nBecause the root FS is read-only, mount an **`emptyDir`** volume at `/tmp` so the process still has a writable scratch area.\n\nThe pod must be **Running**.\n\n_Hint:_ set the container `securityContext.readOnlyRootFilesystem: true`, add a `volumes` entry of type `emptyDir`, and `volumeMounts` it at `/tmp`.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Pod readonly-root has readOnlyRootFilesystem true with an emptyDir mounted at /tmp",
+          "script": "validate/q3_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "Pod readonly-root is Running",
+          "script": "validate/q3_s2.sh",
+          "weightage": 7
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "API server audit logging",
+      "prompt": "Enable **audit logging** on the kube-apiserver running on the control-plane `$CP`.\n\n1. Write an audit policy to `/etc/kubernetes/audit-policy.yaml` on `$CP`. A minimal policy logging everything at `Metadata` level is acceptable.\n2. Edit the kube-apiserver static pod manifest (`/etc/kubernetes/manifests/kube-apiserver.yaml`) to add:\n   - `--audit-policy-file=/etc/kubernetes/audit-policy.yaml`\n   - `--audit-log-path=/var/log/kubernetes/audit.log`\n   and the **hostPath volumes + volumeMounts** so both the policy file and the `/var/log/kubernetes` directory are visible inside the apiserver container.\n\nThe directory `/var/log/kubernetes` is already created on the node (by lab setup). After the kubelet restarts the apiserver, the audit log file must exist on the node.\n\n_Hint:_ mount the policy file read-only and `/var/log/kubernetes` read-write; the apiserver restarts automatically when you save the manifest. Watch `kubectl -n kube-system get pod kube-apiserver-$CP`. If the apiserver does not come back, you introduced a YAML/flag error \u2014 fix the manifest.",
+      "setup": "setup/q4_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Running kube-apiserver has --audit-policy-file and --audit-log-path flags",
+          "script": "validate/q4_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "Audit log file exists at /var/log/kubernetes/audit.log on the control-plane",
+          "script": "validate/q4_s2.sh",
+          "weightage": 8
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "etcd encryption at rest",
+      "prompt": "Encrypt Kubernetes **Secrets at rest** in etcd on the control-plane `$CP`.\n\n1. Create an `EncryptionConfiguration` at `/etc/kubernetes/enc/enc.yaml` on `$CP` that encrypts the `secrets` resource using an **`aescbc`** provider (a 32-byte base64 key), with `identity` listed as a fallback. The directory `/etc/kubernetes/enc` is already created by lab setup.\n2. Edit the kube-apiserver manifest to add `--encryption-provider-config=/etc/kubernetes/enc/enc.yaml` plus the hostPath volume + mount for `/etc/kubernetes/enc`.\n3. After the apiserver restarts, create a Secret named `secret-enc` in namespace `default` (e.g. `kubectl create secret generic secret-enc --from-literal=key=supersecret`).\n\nThe Secret, when read directly from etcd, must be stored **encrypted** (its raw value begins with `k8s:enc:aescbc:`), not plaintext.\n\n_Hint:_ generate a key with `head -c 32 /dev/urandom | base64`. If the Secret existed before you enabled encryption you must re-create it (or run `kubectl get secrets -A -o json | kubectl replace -f -`) so it is re-written encrypted.",
+      "setup": "setup/q5_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Running kube-apiserver has --encryption-provider-config flag",
+          "script": "validate/q5_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "Secret 'secret-enc' is stored encrypted (k8s:enc:aescbc) in etcd",
+          "script": "validate/q5_s2.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "ServiceAccount token hardening",
+      "prompt": "Stop automatically mounting API tokens into a workload that does not need them.\n\n1. Create a ServiceAccount named `restricted` in namespace `default` with **`automountServiceAccountToken: false`**.\n2. Create a pod named `sa-restricted` in namespace `default` using image `busybox:1.36` running `sleep 3600` that uses `serviceAccountName: restricted`.\n\nThe pod must be **Running**.\n\n_Hint:_ `automountServiceAccountToken` lives on the ServiceAccount object (and can also be overridden on the pod). Validation checks the SA field and that the pod references the SA.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ServiceAccount 'restricted' has automountServiceAccountToken false",
+          "script": "validate/q6_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "Pod sa-restricted uses the 'restricted' ServiceAccount and is Running",
+          "script": "validate/q6_s2.sh",
+          "weightage": 7
+        }
+      ]
+    }
+  ]
+}

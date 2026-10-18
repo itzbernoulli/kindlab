@@ -1,0 +1,104 @@
+{
+  "id": "learn-cka-clusterops",
+  "name": "Learn: Cluster Operations (etcd, static pods, drain)",
+  "category": "CKA",
+  "type": "learn",
+  "description": "Learn node-level cluster administration step by step \u2014 static pods, repairing a broken control-plane component, backing up etcd, and cordon/drain/uncordon for node maintenance. Hands-on with real multi-node access via docker exec.",
+  "objective": "CKA \u203a Cluster Architecture + Troubleshooting (25% + 30%). Goal: node-level ops \u2014 static pods, repair a broken control-plane component, back up etcd, and cordon/drain/uncordon nodes.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Static pod on a worker",
+      "teach": "A **static pod** is run directly by the **kubelet** from a manifest file in its static-pod directory on a node \u2014 the API server is never asked to create it. The kubelet watches that directory and (re)starts the pod whenever the file changes.\n\nThe API server then shows a read-only **mirror pod** so you can *see* it with `kubectl`. Its name is always `<pod-name>-<node-name>`, so a pod named `static-web` on `kindlab-worker` appears as `static-web-kindlab-worker`.\n\n**How the kubelet finds the directory**\n- The path comes from `staticPodPath` in the kubelet config (usually `/var/lib/kubelet/config.yaml`) \u2014 by convention `/etc/kubernetes/manifests/`, but confirm it rather than assume.\n- After editing kubelet config you must `systemctl restart kubelet` for the change to take effect; dropping a manifest in the already-configured dir needs no restart.\n\n**Working with static pods**\n- Create = write the YAML file into the dir; **delete = remove the file** (`kubectl delete pod` only kills the mirror; the kubelet recreates it from the file).\n- The mirror pod is read-only via the API: you **cannot** `kubectl edit`/`apply`/`scale` it \u2014 edit the file on the node.\n- Static pods have no controller; `replicas`, Deployments, etc. don't apply. One file = one pod.\n\n**Exam gotchas**\n- Target the right node \u2014 the file must live on the node where you want the pod; a worker's static pod won't appear if you wrote it on the control-plane.\n- The pod name you see is always suffixed with the node name; grading usually checks `<name>-<node>`.\n- The control-plane's own apiserver/scheduler/controller-manager/etcd are static pods in this same dir (next step).\n- `kubectl run --restart=Never` makes an API pod, not a static pod \u2014 don't confuse them.",
+      "prompt": "On worker node `$W1`, create a static pod named `static-web` (image `busybox:1.36`, command `sleep 3600`) by writing a manifest into `/etc/kubernetes/manifests/` on that node. Wait for the kubelet to start it.\n\nTarget: the mirror pod `static-web-$W1` is `Running` in the `default` namespace.",
+      "hint": "`docker exec -it $W1 bash`, then write `/etc/kubernetes/manifests/static-web.yaml` with `metadata.name: static-web`. The kubelet picks it up within ~15s; check with `kubectl get pod static-web-$W1`.",
+      "solution": "docker exec -i \"$W1\" sh -c 'cat >/etc/kubernetes/manifests/static-web.yaml <<EOF\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n  - name: web\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF'\nkubectl get pod static-web-\"$W1\" -n default -w   # wait for Running",
+      "verification": [
+        {
+          "id": "1",
+          "description": "static pod manifest (name: static-web) present on $W1",
+          "script": "validate/q1_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "mirror pod static-web-$W1 is Running",
+          "script": "validate/q1_s2.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Repair a broken control-plane component",
+      "teach": "The control-plane components (apiserver, scheduler, controller-manager, etcd) themselves run as **static pods** on the control-plane node, from `/etc/kubernetes/manifests/`. A bad command-line flag makes a component crash-loop, and the kubelet keeps restarting it.\n\nTo fix one: edit its manifest on the node, remove/correct the offending line, and the kubelet auto-restarts the static pod \u2014 no `kubectl apply` needed. Changing the file is detected within ~15\u201320s.\n\n**Diagnosing which component / why**\n- `kubectl -n kube-system get pods -o wide` \u2014 spot the `CrashLoopBackOff`/not-Ready component.\n- `kubectl -n kube-system describe pod <name>` and `kubectl -n kube-system logs <name>` \u2014 but if the apiserver itself is down, `kubectl` won't work at all.\n- On the node (crictl talks to the container runtime, not the API): `crictl ps -a` to find the exited container, `crictl logs <id>` for the error, `crictl inspect <id>` for the command line.\n- Kubelet-level failures (bad YAML, image pull) show in `journalctl -u kubelet`.\n\n**Common breakage classes to recognize**\n- Bad/unknown flag or typo in `command:`/`args:` \u2192 container exits immediately.\n- Wrong file paths in `volumeMounts`/`hostPath` (certs, config) \u2192 startup errors.\n- Wrong `--etcd-servers`, ports, or `image:` tag.\n- Malformed YAML in the manifest \u2192 kubelet refuses to start the pod (check `journalctl`).\n\n**Exam gotchas**\n- Edit the manifest **on the node** (via `ssh`/`docker exec`), not with `kubectl edit` \u2014 mirror pods are read-only.\n- **Back up the manifest first** (`cp kube-scheduler.yaml /tmp/`) before hacking on it so you can revert.\n- Moving a manifest *out* of the dir stops the component; moving it back restarts it (a handy way to force a clean restart).\n- Watch indentation when editing YAML \u2014 a stray edit that breaks YAML gives a silent failure visible only in kubelet logs.",
+      "prompt": "Setup has injected a bogus flag into the **kube-scheduler** static pod manifest on `$CP`, so the scheduler crash-loops. Fix `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` so the scheduler becomes healthy.\n\nTarget: the `kube-scheduler-$CP` pod in `kube-system` is Ready again.",
+      "hint": "`docker exec -i $CP sh -c 'grep -n bogus /etc/kubernetes/manifests/kube-scheduler.yaml'` to find it, then delete that line with `sed -i '/--bogus-flag=true/d' ...`. Wait ~15s for the kubelet to restart it.",
+      "solution": "docker exec -i \"$CP\" sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-scheduler.yaml\nkubectl -n kube-system get pod kube-scheduler-\"$CP\" -w   # wait for Ready (1/1)",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kube-scheduler static pod is Ready again",
+          "script": "validate/q2_s1.sh",
+          "weightage": 25
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Back up etcd",
+      "teach": "**etcd** is the cluster's key-value store \u2014 all object state lives there, so a backup is your disaster-recovery lifeline. You take one with `etcdctl snapshot save`, pointing at etcd's endpoint and authenticating with its CA/client certs (found under `/etc/kubernetes/pki/etcd/`).\n\nThe etcd pod already ships `etcdctl` and the certs. Its image is **distroless (no shell)**, so call `etcdctl` *directly* via `kubectl exec` \u2014 not wrapped in `sh -c`. Save into `/var/lib/etcd` (mounted on the node), then copy the file out to `/opt/snapshot.db`.\n\n**The four things every etcdctl call needs**\n- `ETCDCTL_API=3` \u2014 the v3 API; it's the default on etcd 3.5+, but set it explicitly if unsure.\n- `--endpoints=https://127.0.0.1:2379` \u2014 etcd's client port.\n- `--cacert`, `--cert`, `--key` \u2014 the CA plus a client cert/key. On a kubeadm cluster these are under `/etc/kubernetes/pki/etcd/` (`ca.crt`, `server.crt`/`healthcheck-client.*`, `server.key`). The exact paths are also in the etcd manifest's `command:`.\n\n**Save vs restore**\n- Save: `etcdctl snapshot save <file>`; verify with `etcdctl snapshot status <file> -w table` (or `etcdutl snapshot status` on newer builds).\n- Restore: `etcdctl snapshot restore <file> --data-dir=<NEW dir>` \u2014 **always restore into a fresh, empty `--data-dir`**, never the live one.\n- After restore you must repoint etcd at the new dir: edit the `hostPath` volume for `etcd-data` in `/etc/kubernetes/manifests/etcd.yaml` (or stop the kubelet, swap dirs, restart). The kubelet then restarts etcd from the restored data.\n\n**Exam gotchas**\n- Distroless image \u2192 **no `sh`/`bash`**; `kubectl exec etcd-... -- sh -c '...'` fails. Call `etcdctl` directly, or run it on the node with `ETCDCTL_API=3 etcdctl ...`.\n- Save the snapshot to a path that's actually mounted into the pod (e.g. `/var/lib/etcd`) or you can't retrieve it; then copy it to the requested host path.\n- Use the **client** cert, not the peer cert; wrong certs \u2192 `context deadline exceeded`/TLS errors.\n- A multi-member/stacked etcd restore must be coordinated across members; single-node kubeadm is the usual exam scenario.",
+      "prompt": "Take an etcd snapshot and save it to `/opt/snapshot.db` on the control-plane node `$CP`.\n\nTarget: `/opt/snapshot.db` exists on `$CP` and is a real (non-trivial, >1KB) etcd snapshot file.",
+      "hint": "`kubectl -n kube-system exec etcd-$CP -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /var/lib/etcd/snapshot.db`, then `docker exec $CP cp /var/lib/etcd/snapshot.db /opt/snapshot.db`.",
+      "solution": "kubectl -n kube-system exec etcd-\"$CP\" -- etcdctl \\\n  --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /var/lib/etcd/snapshot.db\ndocker exec \"$CP\" cp /var/lib/etcd/snapshot.db /opt/snapshot.db",
+      "verification": [
+        {
+          "id": "1",
+          "description": "snapshot file exists at /opt/snapshot.db on $CP",
+          "script": "validate/q3_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "snapshot is a real (non-trivial) etcd backup",
+          "script": "validate/q3_s2.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Cordon and drain a node",
+      "teach": "Before taking a node down for maintenance you **cordon** it (`kubectl cordon`), which sets `spec.unschedulable=true` so no *new* pods land there \u2014 existing pods keep running.\n\nThen you **drain** it (`kubectl drain`) to evict the existing pods so they reschedule elsewhere. Drain cordons the node automatically, so the node ends up unschedulable with its workloads gone.\n\n**The drain flags you must know**\n- `--ignore-daemonsets` \u2014 DaemonSet pods aren't evicted (they're node-bound and would just be recreated); drain **errors out without this flag** if any DS pods exist, which is almost always.\n- `--delete-emptydir-data` (older alias `--delete-local-data`) \u2014 required when a pod uses an `emptyDir`, since that data is lost; without it drain **refuses**.\n- `--force` \u2014 needed to delete pods **not** managed by a controller (bare/standalone pods); they won't be rescheduled.\n- `--grace-period` / `--timeout` / `--pod-selector` / `--disable-eviction` (use DELETE instead of the eviction API, bypassing PodDisruptionBudgets) \u2014 the usual knobs.\n\n**How eviction behaves**\n- Drain uses the **eviction API**, which respects **PodDisruptionBudgets**; a strict PDB can make drain hang/block until it's satisfiable.\n- Static pods and mirror pods can't be evicted and are left alone.\n- cordon/uncordon only flip `spec.unschedulable`; they never move pods \u2014 only drain evicts.\n\n**Exam gotchas**\n- `kubectl get nodes` shows `SchedulingDisabled` on a cordoned node \u2014 a quick way to confirm.\n- Forgetting `--ignore-daemonsets` or `--delete-emptydir-data` is the #1 reason drain fails; read the error, add the flag, rerun.\n- After maintenance you must `kubectl uncordon <node>` \u2014 drain does NOT re-enable scheduling (next step).",
+      "prompt": "Node `$W2` needs maintenance. Cordon it, then drain it (ignoring DaemonSets and deleting emptyDir data).\n\nTarget: node `$W2` is cordoned \u2014 `spec.unschedulable=true` \u2014 and the drain completed.",
+      "hint": "`kubectl cordon $W2`, then `kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data`.",
+      "solution": "kubectl cordon \"$W2\"\nkubectl drain \"$W2\" --ignore-daemonsets --delete-emptydir-data",
+      "verification": [
+        {
+          "id": "1",
+          "description": "node $W2 is cordoned (unschedulable)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Uncordon the control-plane",
+      "teach": "`cordon` marks a node unschedulable (no *new* pods); `uncordon` reverses it by setting `spec.unschedulable=false`. After node maintenance you uncordon to return it to service.\n\n**What uncordon does and doesn't do**\n- It only makes the node schedulable again \u2014 it does **not** pull back the pods that drain evicted; the scheduler places *new* pods there over time.\n- Pods already running elsewhere stay put; nothing is rebalanced automatically.\n\n**Control-plane specifics**\n- Control-plane nodes can be cordoned/uncordoned like any other; their **static** control-plane pods keep running regardless of `unschedulable` (static pods ignore the scheduler).\n- Control-plane nodes normally carry the taint `node-role.kubernetes.io/control-plane:NoSchedule`, so ordinary pods won't land there even after uncordon unless they tolerate it \u2014 a separate mechanism from cordon.\n\n**Exam gotchas**\n- `cordon`/`uncordon` take a **node** name, not a pod; `uncordon` is idempotent (safe to run on an already-schedulable node).\n- `kubectl get node <name>` should no longer show `SchedulingDisabled` once uncordoned.\n- Distinguish the two blockers: `unschedulable` (cordon) vs a **taint** \u2014 removing one doesn't remove the other.",
+      "prompt": "The control-plane node `$CP` was cordoned for maintenance. Bring it back into service.\n\nTarget: `$CP` is schedulable again \u2014 `kubectl get node $CP` no longer shows `SchedulingDisabled`.",
+      "hint": "`kubectl uncordon $CP`",
+      "solution": "kubectl uncordon kindlab-control-plane",
+      "verification": [
+        {
+          "id": "1",
+          "description": "node $CP is schedulable again (uncordoned)",
+          "script": "validate/q5_s1.sh",
+          "weightage": 10
+        }
+      ],
+      "setup": "setup/q5_setup.sh"
+    }
+  ]
+}

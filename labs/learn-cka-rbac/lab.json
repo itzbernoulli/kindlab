@@ -1,0 +1,91 @@
+{
+  "id": "learn-cka-rbac",
+  "name": "Learn: RBAC & Certificates",
+  "category": "CKA",
+  "type": "learn",
+  "description": "Master Kubernetes authorization step by step \u2014 Roles, ClusterRoles, bindings, ServiceAccounts, least-privilege, and approving a CSR. Then prove it in the cka-006 exam.",
+  "objective": "CKA \u203a Cluster Architecture, Installation & Configuration (25%). Goal: create Roles/ClusterRoles and bindings, grant ServiceAccounts, scope least-privilege with resourceNames, and approve a CSR \u2014 RBAC & cert tasks that appear on almost every CKA.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Role + RoleBinding (namespaced)",
+      "teach": "**RBAC** decides who can do what. A **Role** lists allowed *verbs* on *resources* **within one namespace**. A **RoleBinding** grants a Role to one or more *subjects*.\n\nThe chain: `subject \u2192 RoleBinding \u2192 Role \u2192 verbs on resources`.\n\n**Verbs:** `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection` (and `*` for all). `get`/`list`/`watch` are the read trio; mutating verbs are `create`/`update`/`patch`/`delete`.\n\n**Subject kinds:** `User`, `Group`, or `ServiceAccount`. Users/Groups are just strings the authenticator supplies \u2014 Kubernetes has no User object. A RoleBinding may list several subjects at once.\n\n**Rules shape:** a rule is `apiGroups` + `resources` + `verbs` (the core group is `\"\"`, e.g. pods/services/configmaps). You can also name **subresources** like `pods/log`, `pods/exec`, `pods/status`.\n\n**Create vs declare:**\n- Imperative: `kubectl create role NAME --verb=... --resource=...` and `kubectl create rolebinding NAME --role=... --user=... / --group=... / --serviceaccount=ns:name`.\n- Declarative YAML gives you full control (multiple rules, apiGroups, resourceNames).\n\n**Gotchas:**\n- Test effective access with `kubectl auth can-i <verb> <resource> --as=<user> -n <ns>` \u2014 answers `yes`/`no` without logging in. Add `--as-group=` for a group, `--list` to dump all perms.\n- A RoleBinding lives in a namespace and only grants access **in that namespace**, even though it can reference a ClusterRole.\n- Deleting the RoleBinding (not the Role) is what revokes access; both must exist for access to work.\n- `apiGroups` matters: `deployments` are in `apps`, not the core group \u2014 omitting the group silently grants nothing.",
+      "prompt": "In namespace `rbac-learn`, create a Role `pod-reader` allowing `get,list,watch` on `pods`, and a RoleBinding granting it to user `dev`.\n\nTarget: `kubectl auth can-i list pods --as=dev -n rbac-learn` \u2192 `yes`.",
+      "hint": "`kubectl create role pod-reader --verb=get,list,watch --resource=pods -n rbac-learn`, then `kubectl create rolebinding dev-pr --role=pod-reader --user=dev -n rbac-learn`.",
+      "solution": "kubectl create role pod-reader --verb=get,list,watch --resource=pods -n rbac-learn\nkubectl create rolebinding dev-pr --role=pod-reader --user=dev -n rbac-learn\nkubectl auth can-i list pods --as=dev -n rbac-learn   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "user 'dev' can list pods in rbac-learn",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "ClusterRole + ClusterRoleBinding (cluster-scoped)",
+      "teach": "Some resources (nodes, persistentvolumes, namespaces, clusterroles) are **cluster-scoped** \u2014 they live outside any namespace, so a namespaced Role can't grant access to them. A **ClusterRole** holds the rules; a **ClusterRoleBinding** grants them cluster-wide.\n\nRule of thumb:\n- namespaced resource, one namespace \u2192 Role + RoleBinding\n- cluster-scoped resource, OR a namespaced resource across *all* namespaces \u2192 ClusterRole + ClusterRoleBinding\n\n**The key cross-over (very exam-relevant):** a **RoleBinding can reference a ClusterRole**. This reuses one ClusterRole's rules but **scopes them to the RoleBinding's namespace** \u2014 the standard pattern for \"give dev admin, but only in team-a\". The reverse is impossible: a ClusterRoleBinding always grants cluster-wide.\n\n**Other ClusterRole features:**\n- `nonResourceURLs` (e.g. `/healthz`, `/metrics`) can only be granted via a ClusterRole, never a Role.\n- **Aggregation:** a ClusterRole with an `aggregationRule` (label selector) auto-merges rules from other ClusterRoles carrying the matching label \u2014 how the built-in `admin`/`edit`/`view` roles get extended.\n- Built-in ClusterRoles `cluster-admin`, `admin`, `edit`, `view` already exist \u2014 bind them instead of reinventing.\n\n**Gotchas:**\n- `kubectl auth can-i list nodes --as=dev` with no `-n` checks cluster scope; a namespaced check won't reveal a ClusterRoleBinding grant correctly for cluster resources.\n- A ClusterRole alone grants nothing until something binds it.",
+      "prompt": "Create a ClusterRole `node-reader` allowing `get,list` on `nodes`, and a ClusterRoleBinding granting it to user `dev`.\n\nTarget: `kubectl auth can-i list nodes --as=dev` \u2192 `yes`.",
+      "hint": "`kubectl create clusterrole node-reader --verb=get,list --resource=nodes`, then `kubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev`.",
+      "solution": "kubectl create clusterrole node-reader --verb=get,list --resource=nodes\nkubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev\nkubectl auth can-i list nodes --as=dev   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "user 'dev' can list nodes (cluster-scoped)",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "ServiceAccount identity",
+      "teach": "Users are for humans; **ServiceAccounts** are identities for *workloads* (pods). A pod runs as a ServiceAccount and gets a token to call the API. You grant a SA permissions the same way \u2014 bind a Role or ClusterRole to it.\n\n**The two names you'll mix up:**\n- In a binding's `subjects`: `kind: ServiceAccount`, `name: ci`, `namespace: rbac-learn`.\n- In `auth can-i --as=` and in RBAC rules: the full form `system:serviceaccount:<namespace>:<name>` (here `system:serviceaccount:rbac-learn:ci`). The group `system:serviceaccounts:<namespace>` covers all SAs in a namespace.\n- CLI shortcut: `kubectl create rolebinding ... --serviceaccount=<ns>:<name>` (colon, not the full `system:` prefix).\n\n**Attaching a SA to a pod:** set `spec.serviceAccountName` on the pod/template. Every namespace has a `default` SA used when none is specified.\n\n**Tokens (1.24+):**\n- No auto-generated Secret token anymore. Get a short-lived token with `kubectl create token <sa>` (TokenRequest API).\n- For a long-lived token, create a Secret of type `kubernetes.io/service-account-token` annotated with `kubernetes.io/service-account.name`.\n- `automountServiceAccountToken: false` (on SA or pod) stops mounting the token into the pod.\n\n**Gotchas:**\n- A SA with no binding has essentially no API permissions \u2014 the `default` SA is intentionally powerless.\n- Binding namespace matters: a RoleBinding only grants in its own namespace even if the SA lives elsewhere.",
+      "prompt": "In `rbac-learn`, create a ServiceAccount `ci`, then bind the existing `pod-reader` Role to it with a RoleBinding.\n\nTarget: `kubectl auth can-i list pods --as=system:serviceaccount:rbac-learn:ci -n rbac-learn` \u2192 `yes`.",
+      "hint": "`kubectl create sa ci -n rbac-learn`, then `kubectl create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci -n rbac-learn`.",
+      "solution": "kubectl create sa ci -n rbac-learn\nkubectl create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci -n rbac-learn\nkubectl auth can-i list pods --as=system:serviceaccount:rbac-learn:ci -n rbac-learn   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ServiceAccount ci can list pods in rbac-learn",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Least privilege with resourceNames",
+      "teach": "Least privilege means granting the *minimum* needed. Beyond verbs+resources, a Role can restrict to **specific object names** via `resourceNames` \u2014 e.g. read only *one* ConfigMap, not all of them.\n\n**How `resourceNames` behaves (the classic trap):**\n- It works for verbs that act on a *named* object: `get`, `update`, `patch`, `delete`.\n- It **cannot** restrict `list`, `watch`, `create`, or `deletecollection` \u2014 these operate on a collection (or, for create, the name isn't known yet), so a rule with `resourceNames` simply won't authorize them. If you need `list`, the user sees *all* objects of that type.\n\n**CLI:** `kubectl create role NAME --verb=get --resource=configmaps --resource-name=app-config` (repeat `--resource-name` for several names). In YAML it's a `resourceNames: [app-config]` list inside the rule.\n\n**Other least-privilege levers:**\n- Narrow `verbs` (read-only trio vs mutating verbs).\n- Narrow `resources` and use **subresources** (`pods/log`, `pods/exec`) to allow logs without full pod access.\n- Prefer namespaced Role over ClusterRole; prefer binding a ClusterRole via a RoleBinding to confine scope.\n\n**Gotchas:**\n- Verify both the allow AND the deny: `can-i get configmaps/app-config --as=dev` \u2192 yes, `.../other-config` \u2192 no.\n- `resourceNames` is ANDed with the rule \u2014 the subject still needs the verb+resource granted in the same rule.",
+      "prompt": "Two ConfigMaps exist in `rbac-learn`: `app-config` and `other-config`. Create a Role + RoleBinding so user `dev` can `get` **only** `app-config`.\n\nTarget: `can-i get configmaps/app-config --as=dev` \u2192 `yes`, but `can-i get configmaps/other-config --as=dev` \u2192 `no`.",
+      "hint": "`kubectl create role cm-reader --verb=get --resource=configmaps --resource-name=app-config -n rbac-learn`, then bind it to `dev`.",
+      "solution": "kubectl create role cm-reader --verb=get --resource=configmaps --resource-name=app-config -n rbac-learn\nkubectl create rolebinding dev-cm --role=cm-reader --user=dev -n rbac-learn\nkubectl auth can-i get configmaps/app-config  --as=dev -n rbac-learn   # -> yes\nkubectl auth can-i get configmaps/other-config --as=dev -n rbac-learn   # -> no",
+      "verification": [
+        {
+          "id": "1",
+          "description": "dev can get app-config but NOT other-config",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Approve a CertificateSigningRequest",
+      "teach": "To give a *new human user* cluster access you issue them a client certificate: they generate a key + CSR, submit a **CertificateSigningRequest** object, an admin **approves** it, the signer issues the cert, and it goes into their kubeconfig. Kubernetes authenticates the user by the cert's **CN** (username) and **O** (groups).\n\n**The full flow:**\n1. `openssl genrsa` + `openssl req -new` \u2192 a `.csr`, with `/CN=dev/O=devs`.\n2. Create a CSR object (`certificates.k8s.io/v1`) with `spec.request` = base64 of the PEM, and critically `spec.signerName: kubernetes.io/kube-apiserver-client` plus `spec.usages: [client auth]`.\n3. `kubectl certificate approve <name>` (or `deny`) \u2014 an admin decision.\n4. `kubectl get csr <name> -o jsonpath='{.status.certificate}' | base64 -d` to retrieve the issued cert.\n\n**Signer names matter:**\n- `kubernetes.io/kube-apiserver-client` \u2014 client certs for users (most common on exam).\n- `kubernetes.io/kube-apiserver-client-kubelet`, `kubernetes.io/kubelet-serving`, `kubernetes.io/legacy-unknown`.\n\n**Gotchas:**\n- Approving a CSR only authenticates (proves identity) \u2014 it grants **no permissions**. You still need a RoleBinding/ClusterRoleBinding to the CN/O to authorize anything.\n- A `Pending` CSR has no `.status.certificate`; after approval the condition reads `Approved,Issued`.\n- `approve`/`deny` are terminal \u2014 you can't flip an already-decided CSR; recreate it.\n- Wrong/missing `usages` (`client auth`) or `signerName` means it won't issue a usable client cert.\n\nA CSR named `learn-dev` has already been submitted and is **Pending** \u2014 your job is to approve it.",
+      "prompt": "Approve the pending CSR named `learn-dev`.\n\nTarget: `kubectl get csr learn-dev` shows condition `Approved,Issued`.",
+      "hint": "`kubectl get csr` to see it Pending, then `kubectl certificate approve learn-dev`.",
+      "solution": "kubectl get csr\nkubectl certificate approve learn-dev\nkubectl get csr learn-dev   # Approved,Issued",
+      "verification": [
+        {
+          "id": "1",
+          "description": "CSR 'learn-dev' is Approved",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ],
+      "setup": "setup/q5_setup.sh"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kindlab — CKA/CKS practice bench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <polygon points="12,2.4 19.6,6 21.4,14.1 16.2,20.6 7.8,20.6 2.6,14.1 4.4,6" />
+        <circle cx="12" cy="12" r="3.1" />
+      </svg>
+      <span class="brand-name">kindlab</span>
+      <span class="tag">CKA · CKS practice bench</span>
+    </div>
+    <div class="header-right">
+      <div id="examTimer" class="exam-timer" style="display:none"></div>
+      <div id="clusterStatus" class="status">checking cluster…</div>
+    </div>
+  </header>
+
+  <main>
+    <aside id="labList" class="labs"><div class="muted">loading labs…</div></aside>
+
+    <section id="panel" class="panel">
+      <div class="empty">Select a lab on the left to begin.</div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

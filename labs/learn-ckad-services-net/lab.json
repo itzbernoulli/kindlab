@@ -1,0 +1,91 @@
+{
+  "id": "learn-ckad-services-net",
+  "name": "Learn: Services & Networking",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD › Services & Networking (20%). Goal: expose workloads with ClusterIP and NodePort Services, route HTTP with an Ingress host/path rule, lock traffic down with a default-deny NetworkPolicy, and debug a Service that has no endpoints — the connectivity tasks the exam leans on.",
+  "description": "Learn how traffic reaches your pods, step by step — ClusterIP and NodePort Services, an Ingress host/path rule, a default-deny NetworkPolicy, and how to debug a Service whose selector doesn't match its pods. Every step is graded on the full correct result.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "ClusterIP Service with endpoints",
+      "teach": "A **Service** gives a stable virtual IP + DNS name in front of a set of pods. A Service finds its pods with a **selector** (label match); for each matching, *ready* pod it creates an endpoint. DNS name is `<svc>.<ns>.svc.cluster.local`.\n\n**Ports** (keep these straight):\n- `port` — what the Service itself listens on (cluster-internal).\n- `targetPort` — the container port traffic is forwarded to (may be a name, not just a number).\n- `nodePort` — only for NodePort/LoadBalancer, the port opened on every node.\n\n**Service types:**\n- **ClusterIP** (default) — internal-only virtual IP.\n- **NodePort** — ClusterIP + a port on every node; also has a ClusterIP.\n- **LoadBalancer** — NodePort + an external LB; also has a ClusterIP + NodePort.\n- **ExternalName** — no selector/IP, returns a CNAME to an external DNS name.\n- **Headless** (`clusterIP: None`) — no virtual IP; DNS returns pod IPs directly (StatefulSets).\n\nOther knobs: `sessionAffinity: ClientIP` (sticky by client IP); a **selector-less** Service lets you manage **EndpointSlices** (or the legacy Endpoints object) by hand to point at external IPs.\n\n**GOTCHAS:**\n- Empty `kubectl get endpoints <svc>` = selector matches no ready pod → dead end (selector typo, wrong labels, or pods not Ready).\n- `targetPort` defaults to `port` if omitted — easy to forget when they differ.\n- `kubectl expose` copies the workload's selector for you but can't pin a `nodePort` or set a headless clusterIP.",
+      "prompt": "A Deployment `web` (3 replicas, label `app=web`, container port 8080) is already running in namespace `svcnet-learn`. Create a ClusterIP Service named `web` that selects `app=web`, with `port` 80 forwarding to `targetPort` 8080.\n\nTarget: `kubectl -n svcnet-learn get endpoints web` lists 3 endpoint addresses.",
+      "hint": "`kubectl -n svcnet-learn expose deployment web --name=web --port=80 --target-port=8080` — expose copies the Deployment's `app=web` selector for you. Check with `kubectl -n svcnet-learn get endpoints web`.",
+      "solution": "kubectl -n svcnet-learn expose deployment web --name=web --port=80 --target-port=8080\nkubectl -n svcnet-learn get svc web\nkubectl -n svcnet-learn get endpoints web   # should list 3 addresses",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Service web is ClusterIP, port 80 -> targetPort 8080, with 3 endpoints",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "NodePort Service on a pinned port",
+      "teach": "A **NodePort** Service builds on ClusterIP: it additionally opens the same port on **every node**, so `<nodeIP>:<nodePort>` reaches the pods. A NodePort therefore *also* has a ClusterIP (and a LoadBalancer has both a ClusterIP and a NodePort).\n\nThe three ports in play:\n- `port` — the ClusterIP port (internal).\n- `targetPort` — the container port.\n- `nodePort` — the port on each node, **must be 30000–32767**.\n\n**Ways to create it:**\n- Manifest with `type: NodePort` and `nodePort:` under the port entry (the only way to *pin* the value cleanly).\n- `kubectl expose ... --type=NodePort` (Kubernetes auto-assigns the nodePort) then `patch`/`edit` to pin it.\n\n**GOTCHAS:**\n- A `nodePort` outside 30000–32767 is rejected.\n- If you don't set `nodePort`, Kubernetes picks a random one — the exam usually wants a *specific* value, so pin it.\n- `kubectl expose` alone can't pin a `nodePort`; you must patch/edit or write YAML.\n- Still needs a matching selector + ready pods, or there are no endpoints behind the open port.",
+      "prompt": "In `svcnet-learn`, create a NodePort Service named `web-np` selecting `app=web`, with `port` 80, `targetPort` 8080, and `nodePort` pinned to **30080**.\n\nTarget: `kubectl -n svcnet-learn get svc web-np` shows type NodePort with node port 30080.",
+      "hint": "Easiest is a manifest: `type: NodePort`, and under `ports` set `port: 80`, `targetPort: 8080`, `nodePort: 30080`. Or `kubectl expose deployment web --name=web-np --type=NodePort --port=80 --target-port=8080` then `kubectl -n svcnet-learn patch svc web-np -p '{\"spec\":{\"ports\":[{\"port\":80,\"targetPort\":8080,\"nodePort\":30080}]}}'`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata:\n  name: web-np\n  namespace: svcnet-learn\nspec:\n  type: NodePort\n  selector:\n    app: web\n  ports:\n  - port: 80\n    targetPort: 8080\n    nodePort: 30080\nEOF\nkubectl -n svcnet-learn get svc web-np",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Service web-np is NodePort with nodePort 30080 -> targetPort 8080 and has endpoints",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Ingress host + path rule",
+      "teach": "An **Ingress** provides HTTP(S) routing from outside — matching on **host** and **path** and forwarding to a backend Service. An Ingress rule names the backend Service and the Service **port** (the Service's `port`, *not* the pod's targetPort).\n\n**pathType** (required on each path):\n- `Prefix` — matches the path and everything under it (`/` matches all).\n- `Exact` — matches the exact path only.\n- `ImplementationSpecific` — delegates matching to the controller.\n\n**Other pieces:**\n- `ingressClassName` — which controller handles it (replaces the old `kubernetes.io/ingress.class` annotation).\n- `defaultBackend` — catches requests that match no rule.\n- **TLS** — `spec.tls[]` references a `kubernetes.io/tls` Secret (`tls.crt`/`tls.key`) per host.\n- Multiple hosts and multiple paths per host are allowed.\n\n**GOTCHAS:**\n- An Ingress does nothing without a running **ingress controller** — the object can exist and route nothing. (No controller runs in this bench, so grading checks the Ingress object's rule — host, path, backend service + port — not live HTTP.)\n- Backend port = the **Service** port (name or number), not the container targetPort.\n- `kubectl create ingress --rule=\"host/path*=svc:port\"` uses `*` to mean `pathType: Prefix`; omit the `*` for `Exact`.",
+      "prompt": "In `svcnet-learn`, create an Ingress named `web-ing` with one rule: host `web.example.com`, path `/` (pathType `Prefix`), routing to Service `web` on port 80.\n\nTarget: `kubectl -n svcnet-learn get ingress web-ing` exists with that host/path/backend.",
+      "hint": "`kubectl -n svcnet-learn create ingress web-ing --rule=\"web.example.com/*=web:80\"` creates host web.example.com, pathType Prefix, backend web:80 in one line.",
+      "solution": "kubectl -n svcnet-learn create ingress web-ing --rule=\"web.example.com/*=web:80\"\nkubectl -n svcnet-learn get ingress web-ing -o yaml",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Ingress web-ing routes host web.example.com path / to service web:80",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Default-deny ingress NetworkPolicy",
+      "teach": "By default every pod is **non-isolated** — it accepts traffic from everywhere. A **NetworkPolicy** makes the *selected* pods isolated for the listed `policyTypes`. Only enforced by a CNI that supports it.\n\n**Structure:**\n- `podSelector: {}` — empty = **all pods** in the namespace; a label selector = just those pods.\n- `policyTypes: [Ingress]`, `[Egress]`, or both — you only isolate the directions you list.\n- `ingress`/`egress` rules with `from`/`to` peers + `ports`.\n\n**Default-deny patterns:** list the direction in `policyTypes` with **no** matching rules → nothing allowed that way. (This step: `podSelector: {}` + `policyTypes: [Ingress]` + no `ingress:` key.)\n\n**Peer selectors (the classic trap):**\n- `podSelector` + `namespaceSelector` in the **same** `from`/`to` element = **AND** (pods matching both).\n- The same two in **separate** list elements = **OR**.\n- `ipBlock` with `cidr` (and optional `except`) for IP ranges.\n\n**GOTCHAS:**\n- Policies are **additive** and allow-only — there is no \"deny\" rule; you deny by *not* allowing.\n- A default-deny **egress** policy blocks **DNS** (kube-system, port 53 **UDP and TCP**) — add an egress allow for DNS or everything breaks.\n- `policyTypes` controls which directions are isolated; always list every direction you intend to restrict (don't rely on implicit behaviour).\n- NetworkPolicies are namespaced and never span namespaces except via `namespaceSelector`.",
+      "prompt": "In `svcnet-learn`, create a NetworkPolicy named `default-deny` that selects **all** pods in the namespace and denies **all ingress** traffic.\n\nTarget: `kubectl -n svcnet-learn get networkpolicy default-deny` exists with an empty podSelector, policyTypes `[Ingress]`, and no ingress rules.",
+      "hint": "Manifest with `spec.podSelector: {}`, `spec.policyTypes: [Ingress]`, and no `ingress:` key at all (an empty/absent rule list = deny all).",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny\n  namespace: svcnet-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Ingress\nEOF\nkubectl -n svcnet-learn get networkpolicy default-deny -o yaml",
+      "verification": [
+        {
+          "id": "1",
+          "description": "NetworkPolicy default-deny: empty podSelector, Ingress policyType, no ingress rules",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Fix a Service with no endpoints",
+      "teach": "The #1 reason a Service doesn't work: its **selector doesn't match any pod labels**, so `kubectl get endpoints` (or `get endpointslices`) is empty and requests go nowhere.\n\n**Debug flow:**\n1. `kubectl get endpoints <svc>` — empty?\n2. Compare `kubectl get svc <svc> -o jsonpath='{.spec.selector}'` with `kubectl get pods --show-labels`.\n3. Fix the mismatch: `kubectl patch`/`edit` the Service selector, or relabel the pods.\n\n**But \"no endpoints\" has other causes too — check all of them:**\n- Pods exist and match, but are **not Ready** (failing readiness probe) → excluded from endpoints.\n- `targetPort` names a container port the pod doesn't expose.\n- Wrong namespace (Service and pods in different namespaces).\n- A **selector-less** Service that's missing its manual EndpointSlice/Endpoints.\n\n**GOTCHAS:**\n- Only **Ready** pods become endpoints — a crash-looping or unready pod silently disappears from the Service.\n- Editing `spec.selector` is live and immediate; no pod restart needed.\n- `kubectl describe svc <svc>` shows the resolved Endpoints line — fastest sanity check.",
+      "prompt": "A Service `api` in `svcnet-learn` has **no endpoints** — its selector is `app=api-WRONG` but the backing pods (Deployment `api`) are labelled `app=api`. Fix the Service's selector so it matches, and endpoints populate.\n\nTarget: `kubectl -n svcnet-learn get endpoints api` lists at least 1 address.",
+      "hint": "`kubectl -n svcnet-learn get pods --show-labels` to see the real label (`app=api`), then `kubectl -n svcnet-learn patch svc api -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'`. Re-check endpoints.",
+      "solution": "kubectl -n svcnet-learn get endpoints api          # empty\nkubectl -n svcnet-learn get pods --show-labels     # app=api\nkubectl -n svcnet-learn patch svc api -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'\nkubectl -n svcnet-learn get endpoints api          # now populated",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Service api selector fixed to app=api and endpoints now populate",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ],
+      "setup": "setup/q5_setup.sh"
+    }
+  ]
+}

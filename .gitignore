@@ -1,0 +1,7 @@
+# Local cluster state, kubeconfig, and per-lab results — machine-specific, never commit
+.state/
+
+# Node / OS cruft
+node_modules/
+*.log
+.DS_Store

@@ -1,0 +1,111 @@
+{
+  "id": "cks-hardening",
+  "name": "CKS Kubelet, File & RBAC Hardening",
+  "category": "CKS",
+  "description": "Node-level CKS hardening you can't practice without real node access: control-plane manifest file permissions, kubelet readOnlyPort, apiserver NodeRestriction admission, least-privilege RBAC, Pod Security Admission, and a default-deny NetworkPolicy.",
+  "objective": "CKS \u203a Cluster + System Hardening. Prove you can harden file perms, the kubelet, apiserver admission (NodeRestriction), least-privilege RBAC, PSA, and network policy.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Harden a static pod manifest's file permissions",
+      "prompt": "A CIS benchmark finding: the kube-scheduler static pod manifest on the control-plane node `$CP` is world/group readable (it was left at mode `644`). The manifest files under `/etc/kubernetes/manifests/` should be owned `root:root` with permissions `0600` so non-root users on the node cannot read control-plane configuration.\n\nSet the permissions of `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` to exactly `600`.\n\n_Hint:_ `docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml`. Changing the manifest's mode does **not** restart the pod.",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kube-scheduler.yaml is mode 600 on the control-plane",
+          "script": "validate/q1_s1.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Disable the kubelet read-only port",
+      "prompt": "The kubelet on worker `$W1` is serving its unauthenticated **read-only port** (`10255`). CIS requires it disabled. Edit `/var/lib/kubelet/config.yaml` on `$W1` so that `readOnlyPort: 0`, then restart the kubelet so the change takes effect. The node must stay `Ready`.\n\n_Hint:_ `docker exec -it $W1 bash`, edit the file (set `readOnlyPort: 0`), then `systemctl restart kubelet`. Give the node ~20s to report Ready again.",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kubelet config on $W1 has readOnlyPort: 0",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        },
+        {
+          "id": "2",
+          "description": "node $W1 is still Ready after the kubelet restart",
+          "script": "validate/q2_s2.sh",
+          "weightage": 8
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Enable the NodeRestriction admission plugin",
+      "prompt": "Harden the API server so a compromised kubelet can only modify its **own** Node and Pod objects: add the `NodeRestriction` admission plugin to the kube-apiserver.\n\nEdit the static pod manifest `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP` and ensure `--enable-admission-plugins` includes `NodeRestriction` (keep any existing plugins). The kubelet restarts the apiserver automatically; wait for it to come back.\n\n_Hint:_ `docker exec -it $CP bash`, edit the manifest, add `NodeRestriction` to the comma-separated `--enable-admission-plugins` value (or add the flag if absent). A typo here takes the apiserver down, so edit carefully.",
+      "verification": [
+        {
+          "id": "1",
+          "description": "running kube-apiserver has NodeRestriction in --enable-admission-plugins",
+          "script": "validate/q3_s1.sh",
+          "weightage": 15
+        }
+      ],
+      "setup": "setup/q3_setup.sh"
+    },
+    {
+      "id": "4",
+      "title": "Least-privilege RBAC for a read-only service account",
+      "prompt": "In namespace `rbac-lab` there is a ServiceAccount named `reader`. Grant it **read-only** access to pods and nothing more: it must be able to `get` and `list` pods, but must **not** be able to `delete` pods (or do anything else).\n\nCreate a `Role` (in `rbac-lab`) granting `get`/`list` on `pods`, and a `RoleBinding` binding that Role to the `reader` ServiceAccount.\n\n_Hint:_ `kubectl create role ... --verb=get,list --resource=pods -n rbac-lab` then `kubectl create rolebinding ... --role=... --serviceaccount=rbac-lab:reader -n rbac-lab`. Verify with `kubectl auth can-i list pods --as=system:serviceaccount:rbac-lab:reader -n rbac-lab`.",
+      "setup": "setup/q4_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "reader SA CAN list pods in rbac-lab",
+          "script": "validate/q4_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "reader SA CANNOT delete pods in rbac-lab",
+          "script": "validate/q4_s2.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Enforce the restricted Pod Security Standard on a namespace",
+      "prompt": "Namespace `restricted-ns` must enforce the **restricted** Pod Security Standard via Pod Security Admission.\n\nAdd the label `pod-security.kubernetes.io/enforce=restricted` to the namespace, pinned to version `v1.29` with `pod-security.kubernetes.io/enforce-version=v1.29`.\n\n_Hint:_ `kubectl label ns restricted-ns pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=v1.29 --overwrite`.",
+      "setup": "setup/q5_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "restricted-ns enforces the restricted PSA level, pinned to v1.29",
+          "script": "validate/q5_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Default-deny NetworkPolicy",
+      "prompt": "Namespace `netpol-lab` (which already has pods running) has no network isolation. Create a **default-deny-all** NetworkPolicy named `default-deny` in `netpol-lab` that selects **all** pods (empty `podSelector`) and denies **both** ingress and egress (it must list both `Ingress` and `Egress` in `policyTypes`, with no `ingress`/`egress` allow rules).\n\n_Hint:_ a NetworkPolicy with `spec.podSelector: {}` and `spec.policyTypes: [Ingress, Egress]` and no rules denies all traffic to/from every pod in the namespace.",
+      "setup": "setup/q6_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "default-deny policy selects all pods (empty podSelector) in netpol-lab",
+          "script": "validate/q6_s1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "default-deny policy has both Ingress and Egress policyTypes",
+          "script": "validate/q6_s2.sh",
+          "weightage": 10
+        }
+      ]
+    }
+  ]
+}

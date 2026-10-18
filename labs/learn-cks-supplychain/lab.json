@@ -1,0 +1,91 @@
+{
+  "id": "learn-cks-supplychain",
+  "name": "Learn: Supply Chain Security",
+  "category": "CKS",
+  "type": "learn",
+  "description": "Secure the image supply chain step by step \u2014 scan images with Trivy, run static manifest analysis with kubesec, pin images by sha256 digest, enforce an approved registry with a ValidatingAdmissionPolicy, and ban the :latest tag. Exam-focused supply-chain practice on real nodes.",
+  "objective": "CKS \u203a Supply Chain Security (20%). Goal: scan images for CVEs with Trivy, statically analyze manifests with kubesec, pin images by @sha256 digest, enforce an approved registry via a ValidatingAdmissionPolicy + binding, and ban :latest \u2014 the supply-chain tasks the exam weights heavily.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Scan an image with Trivy",
+      "teach": "**Trivy** (by Aqua Security) scans container images for known **CVEs** in OS packages and language dependencies. On the exam you often run it as a one-shot **Job** inside the cluster and read the report from the pod logs.\n\n`trivy image <ref>` pulls the image, matches every installed package against vulnerability databases, and prints a table ending with a `Total:` line per target. A completed Job with that output in its logs is your proof the scan ran.\n\n**Common Trivy invocations:**\n- `trivy image <ref>` — scan a container image (the exam classic).\n- `trivy image --severity HIGH,CRITICAL <ref>` — only show the severities you care about.\n- `trivy image --exit-code 1 --severity CRITICAL <ref>` — non-zero exit when matches found (CI gating).\n- `trivy image --ignore-unfixed <ref>` — hide CVEs with no fix available.\n- `trivy fs <dir>` / `trivy config <dir>` / `trivy k8s` — filesystem, IaC/misconfig, and live-cluster scanning.\n\n**Running it as a Job — the gotchas:**\n- Jobs **must** set `restartPolicy: Never` or `OnFailure` (never the default `Always`) — the API rejects it otherwise.\n- `kubectl create job ... -- image busybox:1.36` puts everything after `--` into **args**; the first token (`image`) is Trivy's subcommand, not a flag.\n- Read results with `kubectl logs job/<name>` (or `logs -l job-name=<name>`); use `kubectl wait --for=condition=complete` to block until done.\n- Set a sane `backoffLimit`; a failed scan (e.g. DB download fails offline) retries and can look stuck. Trivy needs network to fetch its vuln DB on first run.\n- `--exit-code` controls Trivy's process exit, which maps to whether the Job **Complete**s or **Fail**s — don't gate the pass on CVEs being present/absent.",
+      "prompt": "In namespace `cks-supply`, create a **Job** named `trivy-scan` that runs image `aquasec/trivy:latest` with args `image busybox:1.36` to scan the busybox image. Let it run to completion.\n\nTarget: Job `trivy-scan` reaches `Complete` and its pod logs contain Trivy CVE output (a `Total:` / vulnerabilities summary).",
+      "hint": "`kubectl create job trivy-scan -n cks-supply --image=aquasec/trivy:latest -- image busybox:1.36`, then `kubectl -n cks-supply wait --for=condition=complete job/trivy-scan --timeout=180s` and `kubectl -n cks-supply logs job/trivy-scan`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: trivy-scan\n  namespace: cks-supply\nspec:\n  backoffLimit: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: trivy\n        image: aquasec/trivy:latest\n        args: [\"image\", \"busybox:1.36\"]\nYAML\nkubectl -n cks-supply wait --for=condition=complete job/trivy-scan --timeout=180s\nkubectl -n cks-supply logs job/trivy-scan",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job trivy-scan completed and produced Trivy CVE output",
+          "script": "validate/q1_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Static analysis with kubesec",
+      "teach": "**kubesec** performs **static security analysis** of Kubernetes manifests \u2014 it scores a pod/deployment YAML and tells you which `securityContext` hardening is missing (runAsNonRoot, dropped capabilities, read-only root fs, resource limits, etc.).\n\nUnlike Trivy (which scans *images*), kubesec scans the *manifest* before it ever reaches the cluster. Run it as a Job with `controlplaneio/kubesec:latest scan /path/manifest.yaml`; the logs contain a JSON report with a numeric `score` and a list of `advise`/`critical` points.\n\n**Ways to feed kubesec a manifest (it needs the YAML *inside* the container):**\n- **ConfigMap volume** (this task): put the manifest in a ConfigMap, mount it at `/manifests`, pass `scan /manifests/pod.yaml`. Each ConfigMap key becomes a file; use `subPath` if you must land a single key at an exact filename.\n- **emptyDir + initContainer** that writes the file, shared with the kubesec container.\n- **stdin / HTTP API**: locally `kubesec scan pod.yaml` or `cat pod.yaml | kubesec scan -`; kubesec can also run as an HTTP server (`kubesec http 8080`) you POST YAML to.\n\n**Gotchas:**\n- It is *static* \u2014 a high score means a well-hardened manifest, it does **not** mean the image is CVE-free (that's Trivy's job). The two are complementary.\n- kubesec exits **non-zero when the score is below threshold**, so a Job can land in **Failed** even though the scan ran correctly \u2014 grade on the report in the logs, not the Job condition, or use `restartPolicy: Never` + a generous `backoffLimit`.\n- The ConfigMap/volume mount is read-only; the args must match the mounted path exactly (`/manifests/pod.yaml`), not the host path.\n- Mounted ConfigMap files update live if the ConfigMap changes, but the Job reads once at startup.",
+      "prompt": "A pod manifest is mounted at `/manifests/pod.yaml` via a ConfigMap (already created by setup). In `cks-supply`, create a **Job** named `kubesec-scan` using image `controlplaneio/kubesec:latest` with args `scan /manifests/pod.yaml`, mounting that ConfigMap at `/manifests`. Let it complete.\n\nTarget: Job `kubesec-scan` reaches `Complete` and its pod logs contain a kubesec report (a `score` field).",
+      "hint": "Mount the `kubesec-manifest` ConfigMap at `/manifests`. Args must be `[\"scan\",\"/manifests/pod.yaml\"]`. Then `kubectl -n cks-supply wait --for=condition=complete job/kubesec-scan --timeout=180s` and read the logs.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: kubesec-scan\n  namespace: cks-supply\nspec:\n  backoffLimit: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: kubesec\n        image: controlplaneio/kubesec:latest\n        args: [\"scan\", \"/manifests/pod.yaml\"]\n        volumeMounts:\n        - name: m\n          mountPath: /manifests\n      volumes:\n      - name: m\n        configMap:\n          name: kubesec-manifest\nYAML\nkubectl -n cks-supply wait --for=condition=complete job/kubesec-scan --timeout=180s\nkubectl -n cks-supply logs job/kubesec-scan",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job kubesec-scan completed and produced a score/report",
+          "script": "validate/q2_s1.sh",
+          "weightage": 20
+        }
+      ],
+      "setup": "setup/q2_setup.sh"
+    },
+    {
+      "id": "3",
+      "title": "Pin an image by digest (@sha256:)",
+      "teach": "A tag like `:1.36` is **mutable** \u2014 whoever controls the registry can repoint it to a different, possibly malicious, image. A **digest** (`@sha256:<hex>`) is the cryptographic hash of the exact image content, so it is **immutable**: the kubelet pulls precisely the bytes you reviewed, or fails.\n\nPinning by digest (`image: busybox@sha256:<64 hex>`) is the strongest integrity guarantee for the supply chain and is preferred over tags for trusted workloads.\n\n**Ways to reference an image (weakest \u2192 strongest):**\n- `busybox` \u2014 no tag, **implicitly `:latest`**; worst case, unreproducible.\n- `busybox:1.36` \u2014 explicit tag; readable but still mutable (the tag can be moved).\n- `busybox:1.36@sha256:<hex>` \u2014 tag **and** digest; human-readable yet pinned to exact bytes (digest wins if they disagree).\n- `busybox@sha256:<hex>` \u2014 pure digest; fully immutable.\n- Repeat the pattern with a full registry path: `registry.k8s.io/pause@sha256:<hex>`.\n\n**Finding a digest:**\n- `crane digest busybox:1.36` or `skopeo inspect docker://busybox:1.36` (look for `Digest`).\n- `docker buildx imagetools inspect busybox:1.36`.\n- After a pull, `kubectl get pod <p> -o jsonpath='{.status.containerStatuses[0].imageID}'` shows the resolved digest (`imageID`), while `.spec...image` keeps what you wrote.\n\n**Gotchas:**\n- The digest is a sha256 over the **manifest**, so multi-arch images have a different digest per architecture \u2014 a digest copied from another arch won't pull on your node.\n- `imagePullPolicy` defaults to `IfNotPresent` for digests/fixed tags but `Always` for `:latest` \u2014 another reason `:latest` is discouraged.\n- Combining a wrong tag with a right digest still pulls the digest; the tag is cosmetic.\n- Digest-pinned images skip the \"pull newest\" convenience: you must re-pin to upgrade.",
+      "prompt": "In `cks-supply`, create a pod `digest-pod` whose container image is pinned **by digest** \u2014 use `busybox@sha256:<digest>` (any valid busybox sha256 digest), running `sleep 3600`.\n\nTarget: pod `digest-pod` exists and its container `image` field contains `@sha256:` (not a plain tag).",
+      "hint": "Find a digest with `crane digest busybox:1.36` or `docker buildx imagetools inspect busybox:1.36`, or reuse a known one. Then set `image: busybox@sha256:<64-hex-digest>` in the pod spec. The check only requires the image field to contain `@sha256:`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: digest-pod\n  namespace: cks-supply\nspec:\n  containers:\n  - name: app\n    image: busybox@sha256:9ae97d36d26566ff84e8893c64a6dc4fe8ca6d1144bf5b87b2b85a32def253c7\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "digest-pod image is pinned by @sha256: digest",
+          "script": "validate/q3_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Approved-registry admission (ValidatingAdmissionPolicy)",
+      "teach": "A **ValidatingAdmissionPolicy (VAP)** enforces rules in-cluster using **CEL** expressions \u2014 no webhook server to run. It has two parts: the **policy** (the CEL rule) and a **binding** that says which objects it applies to.\n\nA classic supply-chain control is an **approved-registry** allowlist: reject any pod whose container images don't start with a trusted registry such as `registry.k8s.io/`. The CEL walks `object.spec.containers` and checks `image.startsWith('registry.k8s.io/')`. The policy only takes effect once a **ValidatingAdmissionPolicyBinding** references it.\n\n**The three moving parts:**\n- **ValidatingAdmissionPolicy** \u2014 `matchConstraints.resourceRules` (which apiGroups/resources/operations it watches) + `validations[].expression` (the CEL that must be *true* to admit). Optional: `failurePolicy` (`Fail`/`Ignore`), `variables`, `matchConditions`, `paramKind`.\n- **ValidatingAdmissionPolicyBinding** \u2014 `policyName`, `validationActions` (`Deny`, `Warn`, `Audit` \u2014 combinable), and `matchResources` to narrow scope (e.g. by namespace label). Empty `matchResources: {}` = everything the policy matches.\n- Optional **param object** (via `paramKind` + `paramRef` in the binding) to parameterize the rule (e.g. a ConfigMap listing allowed registries).\n\n**CEL helpers for image checks:**\n- All containers: `object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))`.\n- Don't forget **initContainers** and **ephemeralContainers** \u2014 a full policy ANDs all three lists; checking only `containers` is the classic miss.\n- Ban `:latest`: `object.spec.containers.all(c, !c.image.endsWith(':latest'))`.\n\n**Gotchas:**\n- The policy does **nothing** until a binding references it \u2014 two objects, always.\n- VAP is cluster-scoped and GA in v1.30; older clusters need the feature gate / webhooks instead. It's a drop-in alternative to OPA Gatekeeper / Kyverno with no extra pod.\n- `validationActions: [Deny]` blocks on admission; `Warn`/`Audit` only surface messages \u2014 pick `Deny` to actually enforce.\n- `failurePolicy: Fail` blocks the request if CEL errors (e.g. a null field); `Ignore` lets it through \u2014 safer to validate fields exist first via `matchConditions`.\n- CEL runs at admission only, so **pre-existing** non-compliant pods are untouched.",
+      "prompt": "Create a **ValidatingAdmissionPolicy** named `approved-registry` that denies Pods whose container images do **not** start with `registry.k8s.io/`, and a **ValidatingAdmissionPolicyBinding** named `approved-registry-binding` that enables it (action `Deny`) on Pods.\n\nTarget: both objects exist; the policy's CEL validation references `registry.k8s.io` over `object.spec.containers`, and the binding references policy `approved-registry`.",
+      "hint": "`matchConstraints` on resource `pods` (apiGroups: [\"\"]). Validation CEL: `object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))`. Create the binding with `policyName: approved-registry`, `validationActions: [Deny]`, and an empty `matchResources: {}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicy\nmetadata:\n  name: approved-registry\nspec:\n  failurePolicy: Fail\n  matchConstraints:\n    resourceRules:\n    - apiGroups: [\"\"]\n      apiVersions: [\"v1\"]\n      operations: [\"CREATE\",\"UPDATE\"]\n      resources: [\"pods\"]\n  validations:\n  - expression: \"object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))\"\n    message: \"images must come from registry.k8s.io\"\n---\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicyBinding\nmetadata:\n  name: approved-registry-binding\nspec:\n  policyName: approved-registry\n  validationActions: [\"Deny\"]\n  matchResources: {}\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "VAP approved-registry + binding exist with the registry.k8s.io rule",
+          "script": "validate/q4_s1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Ban the :latest tag (pin a real version)",
+      "teach": "`:latest` is the worst tag for supply-chain integrity: it floats to whatever was pushed last, so two deploys of the \"same\" image can run different code \u2014 unreproducible and un-auditable. Policy and CIS benchmarks require an **explicit version tag** (e.g. `:1.25-alpine`) or, better, a **digest**.\n\nAlways pin to a concrete tag or `@sha256:` so rollbacks and scans refer to exactly one image.\n\n**What counts as `:latest`:**\n- `nginx` (no tag) resolves to `nginx:latest` \u2014 an **untagged** image is just as bad as an explicit `:latest`.\n- `nginx:latest` \u2014 explicit and equally mutable.\n- Acceptable: `nginx:1.25-alpine`, or pinned by digest `nginx@sha256:<hex>`.\n- Side effect: `:latest` forces `imagePullPolicy: Always`; a fixed tag/digest defaults to `IfNotPresent`.\n\n**Ways to enforce \"no :latest\":**\n- Admission: a `ValidatingAdmissionPolicy` / Kyverno / Gatekeeper rule (`!image.endsWith(':latest')` and also reject untagged images).\n- Scanning: kubesec/Trivy/`conftest` in CI flag `:latest` in manifests before apply.\n\n**Deployment gotchas (relevant here):**\n- `kubectl create deployment web --image=nginx:1.25-alpine` sets the image; editing it later triggers a **RollingUpdate** (default strategy: `maxSurge 25%`, `maxUnavailable 25%`) \u2014 `Recreate` is the alternative that kills old pods first.\n- Changing only the image is a rollout you can inspect/undo: `kubectl rollout status/history/undo deploy/web` (`--to-revision=N`); `revisionHistoryLimit` caps stored revisions.\n- `--record` is deprecated \u2014 use a `kubernetes.io/change-cause` annotation to label a revision.\n- Scaling (`kubectl scale`) does **not** create a new revision; only template changes (like the image) do.",
+      "prompt": "In `cks-supply`, create a **Deployment** named `web` (1 replica) whose container image uses a **pinned version** \u2014 NOT `:latest` and NOT an untagged image. For example `nginx:1.25-alpine` (or any explicit tag / digest).\n\nTarget: Deployment `web` exists and its container image is not `:latest` and carries an explicit tag or `@sha256:` digest.",
+      "hint": "`kubectl create deployment web -n cks-supply --image=nginx:1.25-alpine`. Avoid `nginx` (implicit latest) and `nginx:latest`.",
+      "solution": "kubectl create deployment web -n cks-supply --image=nginx:1.25-alpine\nkubectl -n cks-supply get deploy web -o jsonpath='{.spec.template.spec.containers[0].image}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment web uses a pinned version, not :latest",
+          "script": "validate/q5_s1.sh",
+          "weightage": 20
+        }
+      ]
+    }
+  ]
+}

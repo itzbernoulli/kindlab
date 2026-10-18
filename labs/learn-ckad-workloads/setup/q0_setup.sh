@@ -1,7 +1,20 @@
 #!/bin/bash
-# Reset the learn environment to a clean slate (idempotent).
-kubectl delete namespace workloads-learn --ignore-not-found --wait=false >/dev/null 2>&1
-# wait for the namespace to fully terminate, then recreate it empty
-for i in $(seq 1 30); do kubectl get ns workloads-learn >/dev/null 2>&1 || break; sleep 1; done
-kubectl create namespace workloads-learn >/dev/null 2>&1
-echo "workloads-learn ready (empty namespace)"
+NS=workloads-learn
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
+kubectl -n "$NS" delete deployment web --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete job pi retry bounded indexed stuck --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete cronjob report nightly --ignore-not-found >/dev/null 2>&1
+# broken Job: parallelism 0 -> no pods run, never completes (step 8 diagnose-fix)
+kubectl -n "$NS" apply -f - >/dev/null 2>&1 <<'YAML'
+apiVersion: batch/v1
+kind: Job
+metadata: { name: stuck, namespace: workloads-learn }
+spec:
+  completions: 3
+  parallelism: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers: [ { name: c, image: busybox:1.36, command: ["sh","-c","exit 0"] } ]
+YAML
+echo "workloads-learn ready; broken Job 'stuck' (parallelism:0) seeded for step 8"

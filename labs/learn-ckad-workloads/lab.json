@@ -1,97 +1,83 @@
 {
   "id": "learn-ckad-workloads",
-  "name": "Learn: Deployments & Jobs",
+  "name": "Learn: Workloads — Jobs & CronJobs (hardened)",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Application Deployment (20%). Goal: create and scale Deployments, roll out a new image and confirm it, roll back to the previous version, and run batch work with Jobs and CronJobs — the workload-lifecycle tasks the exam leans on.",
-  "description": "Learn the core CKAD workload objects step by step — create and scale a Deployment, perform a rolling update and confirm the rollout advanced, roll it back, then drive batch work with a Job (completions + parallelism) and a scheduled CronJob with a concurrencyPolicy.",
+  "objective": "CKAD › Workloads & Scheduling. Drill the controller + batch surface: a Deployment's strategy/history, Jobs (completions/parallelism/backoffLimit/activeDeadline/ttl/Indexed), CronJobs (schedule/concurrencyPolicy/startingDeadline/history/suspend), and a no-hint parallelism diagnose-fix. Graded exactly.",
+  "description": "Eight strict batch/controller practicals. Each Check shows which requirements you met and the reason for any you missed.",
   "questions": [
     {
       "id": "1",
-      "title": "Create and scale a Deployment",
-      "teach": "A **Deployment** manages a replicated, self-healing set of Pods. Create one imperatively with `kubectl create deployment NAME --image=IMG --replicas=N`, then change the desired count with `kubectl scale deployment NAME --replicas=M`.\n\n**Gotcha:** the selector and pod labels default to `app=NAME`, and `.spec.selector` is **immutable** — you can't repoint it after creation.",
-      "prompt": "In namespace `workloads-learn`, create a Deployment named `web` using image `nginx:1.25` with `2` replicas, then scale it to `4` replicas.\n\nTarget: Deployment `web` has `4` ready replicas, pod template image `nginx:1.25`, and selector label `app=web`.",
-      "hint": "`kubectl -n workloads-learn create deployment web --image=nginx:1.25 --replicas=2`, then `kubectl -n workloads-learn scale deployment web --replicas=4`. Check with `kubectl -n workloads-learn get deploy web`.",
-      "solution": "kubectl -n workloads-learn create deployment web --image=nginx:1.25 --replicas=2\nkubectl -n workloads-learn scale deployment web --replicas=4\nkubectl -n workloads-learn get deployment web -o wide   # 4/4 ready, image nginx:1.25",
-      "verification": [
-        {
-          "id": "1",
-          "description": "Deployment web exists with image nginx:1.25 and selector app=web",
-          "script": "validate/q1_s1.sh",
-          "weightage": 10
-        },
-        {
-          "id": "2",
-          "description": "Deployment web is scaled to 4 ready replicas",
-          "script": "validate/q1_s2.sh",
-          "weightage": 10
-        }
-      ]
+      "title": "Deployment: strategy + revision history",
+      "teach": "A Deployment's `.spec.strategy.type` is `RollingUpdate` (default) or `Recreate` (kill all, then recreate — brief downtime). `.spec.revisionHistoryLimit` caps how many old ReplicaSets are kept for rollback.\n\n**Gotcha:** `Recreate` must not carry a `rollingUpdate` block.",
+      "prompt": "In `workloads-learn`, create a Deployment `web` (image `nginx:1.25`, 3 replicas, label `app=web`) with strategy `Recreate` and `revisionHistoryLimit: 5`.\n\nTarget: `web` has 3 replicas, strategy.type Recreate, revisionHistoryLimit 5.",
+      "hint": "Scaffold with `kubectl create deployment web --image=nginx:1.25 --replicas=3 --dry-run=client -o yaml`, then add `strategy.type: Recreate` and `revisionHistoryLimit: 5`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web, namespace: workloads-learn, labels: { app: web } }\nspec:\n  replicas: 3\n  revisionHistoryLimit: 5\n  strategy: { type: Recreate }\n  selector: { matchLabels: { app: web } }\n  template:\n    metadata: { labels: { app: web } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [ { "id": "1", "description": "web: 3 replicas, strategy Recreate, revisionHistoryLimit 5", "script": "validate/c1.sh", "weightage": 12 } ]
     },
     {
       "id": "2",
-      "title": "Rolling update: set a new image",
-      "teach": "A **rolling update** replaces Pods gradually so the app stays available. Swap the image with `kubectl set image deployment/NAME CONTAINER=NEWIMG`, then confirm with `kubectl rollout status deployment/NAME`.\n\n**Gotcha:** the CONTAINER name must match exactly. With `kubectl create deployment web --image=nginx:1.25` the container is named after the **image** (`nginx`), not the deployment — check `-o jsonpath='{.spec.template.spec.containers[0].name}'` first.",
-      "prompt": "Perform a rolling update of Deployment `web` to image `nginx:1.26`, and wait for the rollout to finish.\n\nTarget: the update to `nginx:1.26` creates a new revision (`.metadata.generation` ≥ 2) and its ReplicaSet is recorded in the Deployment's history — this evidence persists even after you roll back in step 3.",
-      "hint": "The container is named `web` (matches the deployment). Run `kubectl -n workloads-learn set image deployment/web web=nginx:1.26`, then `kubectl -n workloads-learn rollout status deployment/web`.",
-      "solution": "kubectl -n workloads-learn set image deployment/web nginx=nginx:1.26\nkubectl -n workloads-learn rollout status deployment/web\nkubectl -n workloads-learn get deployment web -o wide   # image nginx:1.26",
-      "verification": [
-        {
-          "id": "1",
-          "description": "a rollout to nginx:1.26 is recorded in web's ReplicaSet history",
-          "script": "validate/q2_s1.sh",
-          "weightage": 20
-        }
-      ]
+      "title": "Job: completions + parallelism",
+      "teach": "A **Job** runs pods to successful completion. `completions` = how many successes are needed; `parallelism` = how many run at once. A Job pod's `restartPolicy` must be `Never` or `OnFailure` (never `Always`).\n\n**Gotcha:** the API rejects a Job whose pod `restartPolicy` is `Always`.",
+      "prompt": "In `workloads-learn`, create a Job `pi` that reaches **6** successful completions running **2** at a time, image `busybox:1.36`, command `sh -c 'exit 0'`, `restartPolicy: Never`.\n\nTarget: Job `pi` has completions 6, parallelism 2, restartPolicy Never.",
+      "hint": "`spec.completions: 6`, `spec.parallelism: 2`, and `spec.template.spec.restartPolicy: Never`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: pi, namespace: workloads-learn }\nspec:\n  completions: 6\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: pi, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "Job pi: completions 6, parallelism 2, restartPolicy Never", "script": "validate/c2.sh", "weightage": 12 } ]
     },
     {
       "id": "3",
-      "title": "Rollback to the previous version",
-      "teach": "Every rollout is recorded in the Deployment's **revision history**. `kubectl rollout undo deployment/NAME` reverts the pod template to the previous revision — the standard fix when a new image misbehaves. Then re-check `kubectl rollout status`.\n\n**Gotcha:** an undo is itself a **new** rollout — it creates a new revision and does not delete the bad one from history.",
-      "prompt": "The `nginx:1.26` image is causing trouble. Roll back Deployment `web` so its image returns to `nginx:1.25`.\n\nTarget: after the undo, Deployment `web` pod template image is `nginx:1.25` again and the rollout is complete.",
-      "hint": "`kubectl -n workloads-learn rollout undo deployment/web`, then `kubectl -n workloads-learn rollout status deployment/web`. Verify the image with `kubectl -n workloads-learn get deploy web -o wide`.",
-      "solution": "kubectl -n workloads-learn rollout undo deployment/web\nkubectl -n workloads-learn rollout status deployment/web\nkubectl -n workloads-learn get deployment web -o wide   # back to nginx:1.25",
-      "verification": [
-        {
-          "id": "1",
-          "description": "web pod template image reverted to nginx:1.25",
-          "script": "validate/q3_s1.sh",
-          "weightage": 20
-        }
-      ]
+      "title": "Job: backoffLimit + OnFailure",
+      "teach": "`backoffLimit` is how many times a Job retries a failed pod before it's marked Failed (default 6). With `restartPolicy: OnFailure` the **container** restarts in place; with `Never` a new **pod** is created per retry.\n\n**Gotcha:** `OnFailure` restarts the container (same pod); `Never` spawns fresh pods — both count against `backoffLimit`.",
+      "prompt": "In `workloads-learn`, create a Job `retry` (image `busybox:1.36`, command `sh -c 'exit 0'`) with `backoffLimit: 4` and `restartPolicy: OnFailure`.\n\nTarget: Job `retry` has backoffLimit 4 and pod restartPolicy OnFailure.",
+      "hint": "`spec.backoffLimit: 4` and `spec.template.spec.restartPolicy: OnFailure`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: retry, namespace: workloads-learn }\nspec:\n  backoffLimit: 4\n  template:\n    spec:\n      restartPolicy: OnFailure\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "Job retry: backoffLimit 4, restartPolicy OnFailure", "script": "validate/c3.sh", "weightage": 13 } ]
     },
     {
       "id": "4",
-      "title": "Job with completions and parallelism",
-      "teach": "A **Job** runs Pods to successful completion — batch work, not long-lived services. `.spec.completions` is how many successful Pods are required; `.spec.parallelism` is how many run at once. With `completions: 6` and `parallelism: 2`, it runs two at a time until six succeed.\n\n**Gotcha:** there's no imperative flag for `completions`/`parallelism`, so write YAML (`apiVersion: batch/v1`) — and `restartPolicy` **must** be `Never` or `OnFailure`.",
-      "prompt": "In `workloads-learn`, create a Job named `pi` that must reach `6` successful completions running `2` at a time, using image `busybox:1.36` with command `sh -c 'exit 0'`.\n\nTarget: Job `pi` has `.spec.completions=6` and `.spec.parallelism=2`, and reaches 6 successes.",
-      "hint": "Write YAML with `spec.completions: 6`, `spec.parallelism: 2`, restartPolicy `Never`, container image `busybox:1.36`, command `[\"sh\",\"-c\",\"exit 0\"]`. Apply it, then `kubectl -n workloads-learn get job pi`.",
-      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: pi\n  namespace: workloads-learn\nspec:\n  completions: 6\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: pi\n        image: busybox:1.36\n        command: [\"sh\",\"-c\",\"exit 0\"]\nEOF\nkubectl -n workloads-learn get job pi",
-      "verification": [
-        {
-          "id": "1",
-          "description": "Job pi has completions=6 and parallelism=2",
-          "script": "validate/q4_s1.sh",
-          "weightage": 20
-        }
-      ]
+      "title": "Job: deadline + auto-cleanup",
+      "teach": "`activeDeadlineSeconds` caps a Job's total runtime (it's marked Failed/`DeadlineExceeded` past it). `ttlSecondsAfterFinished` auto-deletes the Job that many seconds after it finishes.\n\n**Gotcha:** `activeDeadlineSeconds` bounds wall-clock time and overrides `backoffLimit`; `ttl` cleanup starts only once the Job has completed/failed.",
+      "prompt": "In `workloads-learn`, create a Job `bounded` (image `busybox:1.36`, command `sh -c 'sleep 3600'`, `restartPolicy: Never`) with `activeDeadlineSeconds: 300` and `ttlSecondsAfterFinished: 30`.\n\nTarget: Job `bounded` has activeDeadlineSeconds 300 and ttlSecondsAfterFinished 30.",
+      "hint": "`spec.activeDeadlineSeconds: 300` and `spec.ttlSecondsAfterFinished: 30`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: bounded, namespace: workloads-learn }\nspec:\n  activeDeadlineSeconds: 300\n  ttlSecondsAfterFinished: 30\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"sleep 3600\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "Job bounded: activeDeadlineSeconds 300, ttlSecondsAfterFinished 30", "script": "validate/c4.sh", "weightage": 13 } ]
     },
     {
       "id": "5",
-      "title": "CronJob with schedule and concurrencyPolicy",
-      "teach": "A **CronJob** creates Jobs on a schedule (5-field cron; `*/5 * * * *` = every 5 minutes). `concurrencyPolicy` controls overlap: `Allow` (default), `Forbid` (skip a new run while the previous is still going), or `Replace`.\n\n**Gotcha:** `concurrencyPolicy` is a field on the **CronJob** spec, and `kubectl create cronjob` has no flag for it — edit/patch afterward or write YAML (`apiVersion: batch/v1`).",
-      "prompt": "In `workloads-learn`, create a CronJob named `report` with schedule `*/5 * * * *` and `concurrencyPolicy: Forbid`, whose Job runs image `busybox:1.36` with command `sh -c 'date'`.\n\nTarget: CronJob `report` has `.spec.schedule='*/5 * * * *'` and `.spec.concurrencyPolicy='Forbid'`.",
-      "hint": "`kubectl -n workloads-learn create cronjob report --image=busybox:1.36 --schedule='*/5 * * * *' -- sh -c 'date'` then edit (or patch) to set `concurrencyPolicy: Forbid`. Or write the YAML directly.",
-      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: batch/v1\nkind: CronJob\nmetadata:\n  name: report\n  namespace: workloads-learn\nspec:\n  schedule: \"*/5 * * * *\"\n  concurrencyPolicy: Forbid\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers:\n          - name: report\n            image: busybox:1.36\n            command: [\"sh\",\"-c\",\"date\"]\nEOF\nkubectl -n workloads-learn get cronjob report",
-      "verification": [
-        {
-          "id": "1",
-          "description": "CronJob report has schedule '*/5 * * * *' and concurrencyPolicy Forbid",
-          "script": "validate/q5_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q0_setup.sh"
+      "title": "Indexed Job",
+      "teach": "`completionMode: Indexed` gives each of the `completions` pods a unique index (0..N-1) in `$JOB_COMPLETION_INDEX` — for partitioned/parallel work where each worker handles its slice.\n\n**Gotcha:** default `completionMode` is `NonIndexed`; Indexed needs `completions` set and each index must succeed once.",
+      "prompt": "In `workloads-learn`, create an **Indexed** Job `indexed` (`completionMode: Indexed`) with `completions: 4`, `parallelism: 2`, image `busybox:1.36`, command `sh -c 'exit 0'`, `restartPolicy: Never`.\n\nTarget: Job `indexed` has completionMode Indexed, completions 4, parallelism 2.",
+      "hint": "`spec.completionMode: Indexed` alongside `completions: 4` and `parallelism: 2`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: indexed, namespace: workloads-learn }\nspec:\n  completionMode: Indexed\n  completions: 4\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "Job indexed: completionMode Indexed, completions 4, parallelism 2", "script": "validate/c5.sh", "weightage": 12 } ]
+    },
+    {
+      "id": "6",
+      "title": "CronJob: schedule + concurrencyPolicy",
+      "teach": "A **CronJob** creates a Job on a cron `schedule`. `concurrencyPolicy` handles overlap: `Allow` (default), `Forbid` (skip if the previous run is still going), or `Replace`.\n\n**Gotcha:** the Job pod `restartPolicy` lives under `jobTemplate.spec.template.spec`, and must be `Never`/`OnFailure`.",
+      "prompt": "In `workloads-learn`, create a CronJob `report` with schedule `*/5 * * * *`, `concurrencyPolicy: Forbid`, whose Job runs image `busybox:1.36`, command `sh -c 'date'`, `restartPolicy: Never`.\n\nTarget: CronJob `report` has schedule `*/5 * * * *` and concurrencyPolicy Forbid.",
+      "hint": "`spec.schedule`, `spec.concurrencyPolicy: Forbid`, and the pod under `spec.jobTemplate.spec.template.spec`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: CronJob\nmetadata: { name: report, namespace: workloads-learn }\nspec:\n  schedule: \"*/5 * * * *\"\n  concurrencyPolicy: Forbid\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"date\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "CronJob report: schedule */5, concurrencyPolicy Forbid", "script": "validate/c6.sh", "weightage": 12 } ]
+    },
+    {
+      "id": "7",
+      "title": "CronJob: suspend, deadline, history",
+      "teach": "`suspend: true` stops a CronJob from creating new Jobs. `startingDeadlineSeconds` is how late a missed run may still start. `successfulJobsHistoryLimit`/`failedJobsHistoryLimit` cap how many finished Jobs are kept.\n\n**Gotcha:** `suspend: true` pauses future runs but doesn't stop a Job already running.",
+      "prompt": "In `workloads-learn`, create a **suspended** CronJob `nightly` (schedule `0 2 * * *`, image `busybox:1.36`, command `sh -c 'date'`, restartPolicy Never) with `suspend: true`, `startingDeadlineSeconds: 60`, `successfulJobsHistoryLimit: 2`, `failedJobsHistoryLimit: 1`.\n\nTarget: CronJob `nightly` has suspend true, startingDeadlineSeconds 60, and those history limits.",
+      "hint": "Set `suspend: true`, `startingDeadlineSeconds: 60`, `successfulJobsHistoryLimit: 2`, `failedJobsHistoryLimit: 1` under the CronJob spec.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: CronJob\nmetadata: { name: nightly, namespace: workloads-learn }\nspec:\n  schedule: \"0 2 * * *\"\n  suspend: true\n  startingDeadlineSeconds: 60\n  successfulJobsHistoryLimit: 2\n  failedJobsHistoryLimit: 1\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"date\"] } ]\nYAML",
+      "verification": [ { "id": "1", "description": "CronJob nightly: suspend true, startingDeadline 60, history 2/1", "script": "validate/c7.sh", "weightage": 13 } ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose & fix: a Job that never runs",
+      "teach": "A Job stuck at **0 completions with no pods** usually has `parallelism: 0` (effectively paused) — unlike Deployments, a Job's `parallelism` is mutable, so you patch it up to resume.\n\n**Gotcha:** `kubectl describe job` shows 0 active/0 succeeded with no pod events; patch `parallelism` (not the immutable pod template) to get it moving.",
+      "prompt": "Job `stuck` in `workloads-learn` was created but **no pods run and it never completes**. Diagnose why and fix it so the Job completes. Don't delete it.\n\nTarget: Job `stuck` reaches its completions (succeeded ≥ 3).",
+      "hint": "`kubectl -n workloads-learn get job stuck` shows 0/3 with no pods; `kubectl -n workloads-learn get job stuck -o jsonpath='{.spec.parallelism}'` → 0. Patch it: `kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'`.",
+      "solution": "kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'\nkubectl -n workloads-learn get job stuck -w",
+      "verification": [ { "id": "1", "description": "Job stuck completed (parallelism fixed)", "script": "validate/c8.sh", "weightage": 13 } ]
     }
   ]
 }

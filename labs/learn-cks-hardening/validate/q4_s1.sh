@@ -1,11 +1,15 @@
 #!/bin/bash
-SA=system:serviceaccount:cks-learn:reader
-CAN_LIST=$(kubectl auth can-i list   pods --as="$SA" -n cks-learn 2>/dev/null)
-CAN_DEL=$(kubectl auth can-i delete pods --as="$SA" -n cks-learn 2>/dev/null)
-if [ "$CAN_LIST" = "yes" ] && [ "$CAN_DEL" = "no" ]; then
-  echo "✅ SA reader can list pods but NOT delete pods in cks-learn (least privilege)"; exit 0
+POD="kube-apiserver-$CP"
+# Read the RUNNING apiserver pod spec. If the manifest was broken, kubectl cannot
+# reach the apiserver and this fails with an actionable reason.
+PLUGINS=$(kubectl -n kube-system get pod "$POD" -o jsonpath='{.spec.containers[0].command}' 2>/dev/null \
+  | tr ',' '\n' | grep -- '--enable-admission-plugins' | head -n1)
+if [ -z "$PLUGINS" ]; then
+  echo "❌ could not find --enable-admission-plugins on running $POD (apiserver down? flag missing?). Add NodeRestriction to --enable-admission-plugins in /etc/kubernetes/manifests/kube-apiserver.yaml on $CP"; exit 1
 fi
-if [ "$CAN_LIST" != "yes" ]; then
-  echo "❌ SA reader cannot list pods yet (can-i='${CAN_LIST:-no}'). Create a Role (get,list on pods) + RoleBinding to serviceaccount cks-learn:reader."; exit 1
+# Extract the comma-separated value and check NodeRestriction is one of the plugins.
+VAL=${PLUGINS#*=}
+if echo ",$VAL," | grep -q ',NodeRestriction,'; then
+  echo "✅ running kube-apiserver has NodeRestriction in --enable-admission-plugins"; exit 0
 fi
-echo "❌ SA reader can also delete pods (can-i='${CAN_DEL}') — too broad. Grant only get,list on pods."; exit 1
+echo "❌ --enable-admission-plugins does not include NodeRestriction (value: '${VAL}'). Add it on $CP."; exit 1

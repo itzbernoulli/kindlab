@@ -1,4 +1,13 @@
 #!/bin/bash
-IP=$(kubectl get pod netbroken -n cni-learn -o jsonpath='{.status.podIP}' 2>/dev/null)
-if [ -n "$IP" ]; then echo "✅ CNI restored on $W2 — netbroken now has IP $IP"; exit 0; fi
-echo "❌ netbroken still has no IP — reinstall the CNI by restarting kindnet on $W2: kubectl -n kube-system delete pod -l app=kindnet --field-selector spec.nodeName=$W2"; exit 1
+# Inspection step: node $W1 must have a podCIDR in 10.244.0.0/16 and its kindnet CNI config present.
+CIDR=$(kubectl get node "$W1" -o jsonpath='{.spec.podCIDR}' 2>/dev/null)
+if [ -z "$CIDR" ]; then echo "❌ node '$W1' has no .spec.podCIDR"; exit 1; fi
+case "$CIDR" in
+  10.244.*) : ;;
+  *) echo "❌ node '$W1' podCIDR '$CIDR' is not inside the pod CIDR 10.244.0.0/16"; exit 1;;
+esac
+if ! docker exec "$W1" test -f /etc/cni/net.d/10-kindnet.conflist 2>/dev/null; then
+  echo "❌ /etc/cni/net.d/10-kindnet.conflist missing on node '$W1' (the CNI config is absent)"; exit 1
+fi
+echo "✅ $W1 has podCIDR $CIDR and /etc/cni/net.d/10-kindnet.conflist is present"
+exit 0

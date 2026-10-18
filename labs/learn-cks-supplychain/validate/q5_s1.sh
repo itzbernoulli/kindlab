@@ -1,18 +1,17 @@
 #!/bin/bash
-NS=cks-supply
-D=web
-kubectl -n "$NS" get deploy "$D" >/dev/null 2>&1 || { echo "❌ Deployment $D not found in $NS. Create it with a pinned image (e.g. nginx:1.25-alpine)."; exit 1; }
-IMG=$(kubectl -n "$NS" get deploy "$D" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
-[ -n "$IMG" ] || { echo "❌ could not read Deployment $D image."; exit 1; }
-# reject :latest explicitly
-echo "$IMG" | grep -q ':latest$' && { echo "❌ image '$IMG' uses :latest. Pin an explicit version or @sha256 digest."; exit 1; }
-# accept if digest-pinned
-if echo "$IMG" | grep -q '@sha256:'; then
-  echo "✅ Deployment web uses a digest-pinned image ($IMG)"
-  exit 0
-fi
-# otherwise require an explicit tag on the final path segment
-NAME=${IMG##*/}
-echo "$NAME" | grep -q ':' || { echo "❌ image '$IMG' has no explicit tag (implicit :latest). Pin a version like nginx:1.25-alpine."; exit 1; }
-echo "✅ Deployment web uses a pinned version, not :latest ($IMG)"
-exit 0
+POL=approved-registry
+BIND=approved-registry-binding
+J=$(kubectl get validatingadmissionpolicy "$POL" -o json 2>/dev/null); [ -z "$J" ] && { echo "❌ ValidatingAdmissionPolicy '$POL' not found. Create it with a CEL rule requiring registry.k8s.io over object.spec.containers."; exit 1; }
+B=$(kubectl get validatingadmissionpolicybinding "$BIND" -o json 2>/dev/null); [ -z "$B" ] && { echo "❌ ValidatingAdmissionPolicyBinding '$BIND' not found. Bind the policy with validationActions: [Deny]."; exit 1; }
+export J B
+python3 - <<'PY'
+import os,json,sys
+pol=json.loads(os.environ['J']); b=json.loads(os.environ['B'])
+def fail(m): print("❌ "+m); sys.exit(1)
+exprs=" ".join(v.get("expression","") for v in (pol["spec"].get("validations") or []))
+if "registry.k8s.io" not in exprs: fail("policy 'approved-registry' has no validation referencing 'registry.k8s.io' (got %r)"%(exprs or "none"))
+if "spec.containers" not in exprs: fail("policy validation does not inspect object.spec.containers (got %r)"%(exprs or "none"))
+if b["spec"].get("policyName")!="approved-registry": fail("binding policyName is %r, expected 'approved-registry'"%b["spec"].get("policyName"))
+if "Deny" not in (b["spec"].get("validationActions") or []): fail("binding validationActions %r does not include Deny"%(b["spec"].get("validationActions")))
+print("✅ VAP approved-registry + binding enforce the registry.k8s.io rule with Deny")
+PY

@@ -1,25 +1,28 @@
 #!/bin/bash
-# Tuning: the local rules must include an exception named 'known_good' OR a tuning macro,
-# and reference the known-good process 'my-healthcheck'.
+# Must define a list 'sensitive_dirs' containing /etc and /root, AND a macro
+# 'write_sensitive_dir' whose condition references the list by name.
 NS=falco
 get_local() {
   kubectl -n "$NS" get configmap falco -o jsonpath='{.data.falco_rules\.local\.yaml}' 2>/dev/null
   kubectl -n "$NS" exec ds/falco -c falco -- cat /etc/falco/falco_rules.local.yaml 2>/dev/null
 }
 RULES=$(get_local)
-if [ -z "$RULES" ]; then
-  echo "❌ could not read falco_rules.local.yaml (ConfigMap key or pod file)"; exit 1
+[ -z "$RULES" ] && { echo "❌ could not read falco_rules.local.yaml (ConfigMap 'falco' key or pod file)"; exit 1; }
+
+# list block
+LBLOCK=$(echo "$RULES" | awk '/-[[:space:]]*list:[[:space:]]*sensitive_dirs([[:space:]]|$)/{f=1} f{print} f&&/^[[:space:]]*-[[:space:]]*(rule|macro|list):/&&$0!~/list:[[:space:]]*sensitive_dirs/{exit}')
+[ -z "$LBLOCK" ] && { echo "❌ list 'sensitive_dirs' not found"; exit 1; }
+MISS=""
+echo "$LBLOCK" | grep -q '/etc'  || MISS="$MISS /etc"
+echo "$LBLOCK" | grep -q '/root' || MISS="$MISS /root"
+if [ -n "$MISS" ]; then
+  echo "❌ list 'sensitive_dirs' is missing item(s):$MISS (items must include /etc and /root)"; exit 1
 fi
-if ! echo "$RULES" | grep -q 'my-healthcheck'; then
-  echo "❌ no reference to known-good process 'my-healthcheck' in falco_rules.local.yaml"; exit 1
+
+# macro block referencing the list
+MBLOCK=$(echo "$RULES" | awk '/-[[:space:]]*macro:[[:space:]]*write_sensitive_dir([[:space:]]|$)/{f=1} f{print} f&&/^[[:space:]]*-[[:space:]]*(rule|macro|list):/&&$0!~/macro:[[:space:]]*write_sensitive_dir/{exit}')
+[ -z "$MBLOCK" ] && { echo "❌ macro 'write_sensitive_dir' not found"; exit 1; }
+if ! echo "$MBLOCK" | grep -q 'sensitive_dirs'; then
+  echo "❌ macro 'write_sensitive_dir' does not reference the list 'sensitive_dirs'"; exit 1
 fi
-HAS_EXC=0; HAS_MACRO=0
-echo "$RULES" | grep -Eq 'name:[[:space:]]*known_good' && HAS_EXC=1
-echo "$RULES" | grep -Eq '^[[:space:]]*-[[:space:]]*macro:' && echo "$RULES" | grep -q 'and not' && HAS_MACRO=1
-if [ "$HAS_EXC" -eq 1 ]; then
-  echo "✅ exception 'known_good' referencing 'my-healthcheck' present in local rules"; exit 0
-fi
-if [ "$HAS_MACRO" -eq 1 ]; then
-  echo "✅ tuning macro (and not ...) referencing 'my-healthcheck' present in local rules"; exit 0
-fi
-echo "❌ 'my-healthcheck' found but no exception named 'known_good' and no tuning macro ('and not <macro>'). Add one"; exit 1
+echo "✅ list 'sensitive_dirs' (/etc,/root) + macro 'write_sensitive_dir' referencing it are present"; exit 0

@@ -1,6 +1,8 @@
 #!/bin/bash
-# Ensure the cks-learn namespace exists and clear any prior attempt at the hardened SA/pod.
-kubectl get namespace cks-learn >/dev/null 2>&1 || kubectl create namespace cks-learn >/dev/null 2>&1
-kubectl -n cks-learn delete pod hardened --ignore-not-found --wait=false >/dev/null 2>&1
-kubectl -n cks-learn delete serviceaccount no-token --ignore-not-found >/dev/null 2>&1
-echo "cks-learn ready (create SA 'no-token' with automount disabled + pod 'hardened' using it)"
+# Ensure the apiserver has NO --profiling flag so the learner must add --profiling=false.
+# --profiling defaults to true, so an absent flag == non-compliant (the whole point).
+# Only removes the --profiling line; leaves --enable-admission-plugins (step 4) intact.
+M=/etc/kubernetes/manifests/kube-apiserver.yaml
+docker exec "$CP" sed -i '/--profiling=/d' "$M"
+echo "removed any --profiling flag from kube-apiserver on $CP (add --profiling=false). Waiting for restart..."
+sleep 10

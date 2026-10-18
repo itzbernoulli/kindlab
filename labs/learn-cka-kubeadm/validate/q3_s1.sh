@@ -1,11 +1,18 @@
 #!/bin/bash
-U=$(kubectl get node "$W2" -o jsonpath='{.spec.unschedulable}' 2>/dev/null)
-if [ "$U" = "true" ]; then
-  echo "❌ node $W2 is still cordoned (unschedulable). After draining, run: kubectl uncordon $W2"; exit 1
+# Step 3: /tmp/apiserver-image.txt on $CP must equal the ACTUAL image: from
+# /etc/kubernetes/manifests/kube-apiserver.yaml, and look like kube-apiserver:v<x.y.z>.
+TRUTH=$(docker exec "$CP" sh -c "grep -E '^\s*image:' /etc/kubernetes/manifests/kube-apiserver.yaml | head -1 | awk '{print \$2}'" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$TRUTH" ]; then
+  echo "❌ could not read image: from /etc/kubernetes/manifests/kube-apiserver.yaml on \$CP (unexpected cluster state)"; exit 1
 fi
-# No running drain-me pod should remain bound to $W2.
-LEFT=$(kubectl -n default get pods -l app=drain-me -o jsonpath="{range .items[?(@.spec.nodeName=='$W2')]}{.metadata.name}={.status.phase} {end}" 2>/dev/null | grep -o 'Running' | grep -c .)
-if [ "${LEFT:-0}" -ge 1 ]; then
-  echo "❌ a drain-me pod is still Running on $W2 — the drain did not evict it. Run: kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data --force"; exit 1
+GOT=$(docker exec "$CP" cat /tmp/apiserver-image.txt 2>/dev/null | tr -d '[:space:]')
+if [ -z "$GOT" ]; then
+  echo "❌ /tmp/apiserver-image.txt not found/empty on \$CP. Write the apiserver 'image:' value from the static manifest"; exit 1
 fi
-echo "✅ $W2 is schedulable and holds no running drain-me pod"; exit 0
+if ! echo "$GOT" | grep -qE 'kube-apiserver:v[0-9]+\.[0-9]+\.[0-9]+'; then
+  echo "❌ /tmp/apiserver-image.txt ('$GOT') is not a kube-apiserver:v<major>.<minor>.<patch> image reference"; exit 1
+fi
+if [ "$GOT" = "$TRUTH" ]; then
+  echo "✅ /tmp/apiserver-image.txt = '$GOT' matches the static manifest image"; exit 0
+fi
+echo "❌ /tmp/apiserver-image.txt is '$GOT' but the manifest image is '$TRUTH' — write the exact image: value"; exit 1

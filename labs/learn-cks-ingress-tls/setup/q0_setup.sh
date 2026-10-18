@@ -1,21 +1,19 @@
 #!/bin/bash
-# Reset the learn environment to a clean slate (idempotent).
-# ingress-learn: seeded with a web Deployment + Service so the learner's job is
-# the TLS Secret + Ingress work. No Secret, no Ingress are seeded, so every
-# step is graded on real learner work (nothing passes on an untouched cluster).
-kubectl delete namespace ingress-learn --ignore-not-found --wait=false >/dev/null 2>&1
+# Prepare ingress-learn for the TLS-at-the-Ingress drills WITHOUT deleting the
+# namespace (that races under load). Resource-level cleanup only: ensure the ns
+# exists, remove the objects this lab builds, then re-seed the backend app.
+# No Secret and no Ingress are seeded here, so steps 1-5 grade real learner work.
+NS=ingress-learn
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
 
-# wait for the namespace to be fully gone before recreating
-for i in $(seq 1 30); do kubectl get ns ingress-learn >/dev/null 2>&1 || break; sleep 1; done
+# remove the objects the learner creates / repairs across the lab
+kubectl -n "$NS" delete ingress web shop --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete secret web-tls shop-tls --ignore-not-found >/dev/null 2>&1
 
-kubectl create namespace ingress-learn >/dev/null 2>&1
+# (re)seed the backend app: Deployment 'web' + ClusterIP Service 'web' on port 80
+kubectl -n "$NS" get deploy web >/dev/null 2>&1 || \
+  kubectl -n "$NS" create deployment web --image=nginx:alpine --replicas=1 >/dev/null 2>&1
+kubectl -n "$NS" get svc web >/dev/null 2>&1 || \
+  kubectl -n "$NS" expose deployment web --name=web --port=80 --target-port=80 >/dev/null 2>&1
 
-# seed the backend app: Deployment 'web' + ClusterIP Service 'web' on port 80
-kubectl -n ingress-learn create deployment web --image=nginx:alpine --replicas=1 >/dev/null 2>&1 || true
-kubectl -n ingress-learn expose deployment web --name=web --port=80 --target-port=80 >/dev/null 2>&1 || true
-
-# make sure no leftover Secret/Ingress from a prior run — the learner must create them
-kubectl -n ingress-learn delete secret web-tls --ignore-not-found >/dev/null 2>&1 || true
-kubectl -n ingress-learn delete ingress web --ignore-not-found >/dev/null 2>&1 || true
-
-echo "ingress-learn ready (Deployment+Service 'web' on port 80; no Secret/Ingress — create web-tls + Ingress yourself)"
+echo "ingress-learn ready (Deployment+Service 'web' on port 80; no Secret/Ingress — create web-tls + Ingress 'web' yourself)"

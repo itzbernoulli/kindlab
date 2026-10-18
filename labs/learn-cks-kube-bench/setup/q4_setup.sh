@@ -1,12 +1,7 @@
 #!/bin/bash
-# Disable NodeRestriction on the apiserver so the learner must re-enable it.
-# (kind/kubeadm enables it by default, so without this the task would always pass.)
-# Only the admission-plugins flag is touched; the apiserver restarts and recovers.
-M=/etc/kubernetes/manifests/kube-apiserver.yaml
-docker exec "$CP" sh -c "
-  sed -i 's/,NodeRestriction//; s/NodeRestriction,//; s/=NodeRestriction/=/' $M
-  # if the flag value is now empty, remove the whole line
-  sed -i '/--enable-admission-plugins=\$/d' $M
-"
-echo "NodeRestriction disabled on kube-apiserver (re-enable it). Waiting for restart..."
-sleep 10
+# Loosen the CA private key permissions to 644 (a CIS violation kube-bench flags as
+# 1.1.19). Changing only the mode does NOT alter the key or restart anything — fully
+# recoverable.
+K=/etc/kubernetes/pki/ca.key
+docker exec "$CP" chmod 644 "$K"
+echo "ca.key set to 644 on $CP (harden it to 600)"

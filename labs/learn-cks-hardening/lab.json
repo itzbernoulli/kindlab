@@ -1,33 +1,33 @@
 {
   "id": "learn-cks-hardening",
-  "name": "Learn: Cluster Hardening",
+  "name": "Learn: Cluster Hardening (hardened)",
   "category": "CKS",
   "type": "learn",
-  "description": "Learn node-level CKS cluster hardening step by step on a real multi-node cluster: control-plane manifest file permissions, disabling the kubelet read-only port, the apiserver NodeRestriction admission plugin, least-privilege RBAC, and ServiceAccount token hardening.",
-  "objective": "CKS › Cluster + System Hardening (15% + 15%). Goal: harden the cluster — manifest file perms, kubelet flags, apiserver admission plugins, and least-privilege RBAC.",
+  "objective": "CKS › Cluster + System Hardening (15% + 15%). Drill EVERY hardening corner harder than the exam on a real multi-node kind cluster: control-plane manifest perms, kubelet read-only port + anonymous-auth + authz mode, two apiserver admission/flag hardenings, least-privilege RBAC, ServiceAccount token hardening, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "description": "Eight strict node-level practicals on a real multi-node cluster via docker exec ($CP control-plane, $W1/$W2 workers). Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
-      "title": "Harden control-plane file permissions",
-      "teach": "Static pod manifests under `/etc/kubernetes/manifests/` hold sensitive flags, so CIS wants them mode `0600` (`rw-------`), readable only by root. Use `chmod 600 <file>` and verify with `stat -c '%a' <file>`. On a kind cluster each node is a container, so run it via `docker exec <node> ...`.\n\n**Gotcha:** Changing a manifest's mode/owner does NOT restart its pod (safe live); only editing its *contents* does.",
-      "prompt": "The kube-scheduler static pod manifest on control-plane node `$CP` was left world/group readable at mode `644`. Set `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` to exactly mode `600`.\n\nTarget: `docker exec $CP stat -c '%a' /etc/kubernetes/manifests/kube-scheduler.yaml` prints `600`.",
-      "hint": "`docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml`",
-      "solution": "docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml   # 600 root:root",
+      "title": "Harden control-plane manifest file permissions",
+      "teach": "Static pod manifests under `/etc/kubernetes/manifests/` carry sensitive flags, so CIS wants them mode `0600` (`rw-------`) and owned `root:root`. On a kind cluster each node is a container, so operate via `docker exec $CP ...` and verify with `stat -c '%a %U:%G'`.\n\n**Gotcha:** changing a manifest's mode/owner does NOT restart its pod (safe live) — only editing its *contents* does.",
+      "prompt": "The kube-scheduler static pod manifest on control-plane `$CP` was left world/group readable at mode `644`. Set `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` to exactly mode `600`, owned `root:root`.\n\nTarget: `docker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml` prints `600 root:root`.",
+      "hint": "`docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml` (it is already root:root).",
+      "solution": "docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP chown root:root /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml   # 600 root:root",
       "setup": "setup/q1_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "kube-scheduler.yaml is mode 600 on $CP",
+          "description": "kube-scheduler.yaml is mode 600 root:root on $CP",
           "script": "validate/q1_s1.sh",
-          "weightage": 20
+          "weightage": 12
         }
       ]
     },
     {
       "id": "2",
       "title": "Disable the kubelet read-only port",
-      "teach": "The kubelet's **read-only port** (`10255`) serves pod/node metadata with no auth and no TLS. CIS requires it off: set `readOnlyPort: 0` in the kubelet config (`/var/lib/kubelet/config.yaml`), then `systemctl restart kubelet`. Any non-zero value leaves it enabled.\n\n**Gotcha:** The config edit does nothing until you restart the kubelet, and the node goes `NotReady` briefly — wait ~20s and confirm it's `Ready` again.",
-      "prompt": "On worker `$W1` the kubelet is serving its read-only port (seeded as `readOnlyPort: 10255`). Edit `/var/lib/kubelet/config.yaml` on `$W1` so that `readOnlyPort: 0`, then restart the kubelet. Give the node ~20s to report `Ready` again.\n\nTarget: the config on `$W1` has `readOnlyPort: 0` AND node `$W1` is `Ready`.",
+      "teach": "The kubelet **read-only port** (`10255`) serves pod/node metadata with no auth and no TLS. CIS requires it off: set `readOnlyPort: 0` in `/var/lib/kubelet/config.yaml`, then `systemctl restart kubelet`. Any non-zero value leaves it enabled.\n\n**Gotcha:** the edit does nothing until the kubelet restarts, and the node goes `NotReady` briefly — wait ~20s and confirm it's `Ready` again.",
+      "prompt": "On worker `$W1` the kubelet is serving its read-only port (seeded as `readOnlyPort: 10255`). Edit `/var/lib/kubelet/config.yaml` on `$W1` so `readOnlyPort: 0`, then restart the kubelet and give the node ~20s to report `Ready` again.\n\nTarget: the config on `$W1` has `readOnlyPort: 0` AND node `$W1` is `Ready`.",
       "hint": "`docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml`, then `docker exec $W1 systemctl restart kubelet`.",
       "solution": "docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml\ndocker exec $W1 grep readOnlyPort /var/lib/kubelet/config.yaml   # readOnlyPort: 0\ndocker exec $W1 systemctl restart kubelet\nkubectl get node $W1   # wait ~20s for Ready",
       "setup": "setup/q2_setup.sh",
@@ -36,64 +36,115 @@
           "id": "1",
           "description": "kubelet config on $W1 has readOnlyPort: 0",
           "script": "validate/q2_s1.sh",
-          "weightage": 10
+          "weightage": 7
         },
         {
           "id": "2",
           "description": "node $W1 is still Ready after the kubelet restart",
           "script": "validate/q2_s2.sh",
-          "weightage": 10
+          "weightage": 6
         }
       ]
     },
     {
       "id": "3",
-      "title": "Re-enable the NodeRestriction admission plugin",
-      "teach": "`NodeRestriction` is an apiserver **admission controller** limiting each kubelet to modifying only its own Node and the Pods bound to it. Enable it in `/etc/kubernetes/manifests/kube-apiserver.yaml` via `--enable-admission-plugins=NodeRestriction,...`, appending to any existing comma-separated value as one flag.\n\n**Gotcha:** Saving the manifest auto-restarts the apiserver; a typo takes it DOWN. Wait ~20–60s for it to come back.",
-      "prompt": "Setup removed `NodeRestriction` from the apiserver's `--enable-admission-plugins`. Edit `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP` so the flag includes `NodeRestriction` again (keep any other plugins), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `NodeRestriction` in `--enable-admission-plugins`.",
-      "hint": "`docker exec -it $CP bash`, then add the line `- --enable-admission-plugins=NodeRestriction` under the kube-apiserver command args (or append `,NodeRestriction` to an existing value). Save and wait ~20s for the apiserver to restart.",
-      "solution": "# Setup removed the flag line, so add it back under the kube-apiserver args:\ndocker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml\n# (If the flag already exists with other plugins, instead append ,NodeRestriction to its value.)\n# Wait ~20s for the apiserver to restart, then verify:\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep enable-admission-plugins",
+      "title": "Lock down kubelet authn/authz",
+      "teach": "An unprotected kubelet lets anyone hit its API. CIS requires `authentication.anonymous.enabled: false` and `authorization.mode: Webhook` (not blanket `AlwaysAllow`) in `/var/lib/kubelet/config.yaml`, then a kubelet restart.\n\n**Gotcha:** `anonymous.enabled` is nested under `authentication:` and `mode` under `authorization:` — edit the right blocks, not stray top-level keys.",
+      "prompt": "On worker `$W2` the kubelet was seeded insecure: `authentication.anonymous.enabled: true` and `authorization.mode: AlwaysAllow`. Edit `/var/lib/kubelet/config.yaml` on `$W2` so anonymous auth is **disabled** and the authorization mode is **Webhook**, then restart the kubelet and let `$W2` go `Ready` again.\n\nTarget: on `$W2`, `authentication.anonymous.enabled: false` AND `authorization.mode: Webhook`, and node `$W2` is `Ready`.",
+      "hint": "In `/var/lib/kubelet/config.yaml` on `$W2`, set the `enabled:` under `authentication.anonymous` to `false` and the `mode:` under `authorization` to `Webhook`; then `docker exec $W2 systemctl restart kubelet`.",
+      "solution": "docker exec $W2 sed -i 's/^\\(\\s*enabled:\\).*/\\1 false/' /var/lib/kubelet/config.yaml   # under authentication.anonymous\ndocker exec $W2 sed -i 's/^\\(\\s*mode:\\).*/\\1 Webhook/' /var/lib/kubelet/config.yaml       # under authorization\ndocker exec $W2 systemctl restart kubelet\nkubectl get node $W2   # wait ~20s for Ready",
       "setup": "setup/q3_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "running kube-apiserver has NodeRestriction in --enable-admission-plugins",
+          "description": "kubelet on $W2: anonymous auth false + authorization mode Webhook, node Ready",
           "script": "validate/q3_s1.sh",
-          "weightage": 20
+          "weightage": 13
         }
       ]
     },
     {
       "id": "4",
-      "title": "Least-privilege RBAC for a workload",
-      "teach": "Give a workload the minimum API access: a narrow namespaced **Role** (only the verbs/resources needed) bound to its ServiceAccount via a **RoleBinding** — never `cluster-admin`. Imperatively: `kubectl create role <r> --verb=get,list --resource=pods` then `kubectl create rolebinding <rb> --role=<r> --serviceaccount=<ns>:<name>`.\n\n**Gotcha:** `--serviceaccount` takes `ns:name`, not just the name.",
-      "prompt": "In namespace `cks-learn` a ServiceAccount `reader` already exists. Create a Role granting only `get,list` on `pods` and a RoleBinding binding it to that SA.\n\nTarget: SA `reader` can `list pods` (`yes`) but cannot `delete pods` (`no`) in `cks-learn`.",
-      "hint": "`kubectl -n cks-learn create role pod-reader --verb=get,list --resource=pods`, then `kubectl -n cks-learn create rolebinding reader-pr --role=pod-reader --serviceaccount=cks-learn:reader`.",
-      "solution": "kubectl -n cks-learn create role pod-reader --verb=get,list --resource=pods\nkubectl -n cks-learn create rolebinding reader-pr --role=pod-reader --serviceaccount=cks-learn:reader\nkubectl auth can-i list pods   --as=system:serviceaccount:cks-learn:reader -n cks-learn   # yes\nkubectl auth can-i delete pods --as=system:serviceaccount:cks-learn:reader -n cks-learn   # no",
+      "title": "Re-enable the NodeRestriction admission plugin",
+      "teach": "`NodeRestriction` is an apiserver **admission controller** limiting each kubelet to modifying only its own Node and the Pods bound to it. Enable it in `/etc/kubernetes/manifests/kube-apiserver.yaml` via `--enable-admission-plugins=NodeRestriction,...` — one flag, comma-separated.\n\n**Gotcha:** saving the manifest auto-restarts the apiserver; a typo takes it DOWN — wait ~20–60s for it to come back.",
+      "prompt": "Setup removed `NodeRestriction` from the apiserver's `--enable-admission-plugins`. Edit `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP` so the flag includes `NodeRestriction` again (keep any other plugins), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `NodeRestriction` in `--enable-admission-plugins`.",
+      "hint": "`docker exec $CP sed -i '/- kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml` (or append `,NodeRestriction` to an existing value). Wait ~20s for the restart.",
+      "solution": "# Setup removed the flag line, so add it back under the kube-apiserver args:\ndocker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml\n# (If the flag already exists with other plugins, instead append ,NodeRestriction to its value.)\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep enable-admission-plugins",
       "setup": "setup/q4_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "SA reader can list pods but cannot delete pods in cks-learn",
+          "description": "running kube-apiserver has NodeRestriction in --enable-admission-plugins",
           "script": "validate/q4_s1.sh",
-          "weightage": 20
+          "weightage": 12
         }
       ]
     },
     {
       "id": "5",
-      "title": "ServiceAccount token hardening",
-      "teach": "By default every pod auto-mounts a ServiceAccount token the attacker could steal. For pods that never call the API, set `automountServiceAccountToken: false` on the **ServiceAccount** so pods using it get no token volume, and point the pod at it with `serviceAccountName`.\n\n**Gotcha:** `automountServiceAccountToken` sits at the **top level** of the SA object, not inside a `spec:` block — a common YAML mistake.",
-      "prompt": "In namespace `cks-learn`, create a ServiceAccount `no-token` with `automountServiceAccountToken: false`, then run a pod `hardened` using that ServiceAccount (image `busybox:1.36`, e.g. `sleep 3600`).\n\nTarget: SA `no-token` has `automountServiceAccountToken: false` AND pod `hardened` runs as SA `no-token` with no SA token volume mounted.",
-      "hint": "Create the SA, patch/set `automountServiceAccountToken: false`, then create the pod with `serviceAccountName: no-token`. Apply a manifest with `kubectl apply -f -`.",
-      "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: no-token\n  namespace: cks-learn\nautomountServiceAccountToken: false\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: hardened\n  namespace: cks-learn\nspec:\n  serviceAccountName: no-token\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "title": "Turn off apiserver profiling",
+      "teach": "The apiserver's `/debug/pprof` profiling endpoints leak internals, so CIS wants `--profiling=false` on the kube-apiserver. Add it to `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP`; saving restarts the apiserver.\n\n**Gotcha:** `--profiling` defaults to `true`, so merely omitting the flag is NOT compliant — it must be present and set to `false`.",
+      "prompt": "Harden the kube-apiserver on `$CP` by adding `--profiling=false` to its static pod manifest (`/etc/kubernetes/manifests/kube-apiserver.yaml`), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `--profiling=false` in its command args.",
+      "hint": "`docker exec $CP sed -i '/- kube-apiserver$/a\\    - --profiling=false' /etc/kubernetes/manifests/kube-apiserver.yaml`, then wait ~20s and check `kubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep profiling`.",
+      "solution": "docker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --profiling=false' /etc/kubernetes/manifests/kube-apiserver.yaml\n# wait ~20s for the apiserver to restart, then:\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep -- --profiling",
       "setup": "setup/q5_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "SA no-token has automount disabled and pod hardened uses it with no token mounted",
+          "description": "running kube-apiserver has --profiling=false",
           "script": "validate/q5_s1.sh",
-          "weightage": 20
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Least-privilege RBAC for a workload",
+      "teach": "Give a workload the minimum API access: a narrow namespaced **Role** (only the verbs/resources needed) bound to its ServiceAccount via a **RoleBinding** — never `cluster-admin`. Imperatively: `kubectl create role r --verb=get,list --resource=pods` then `kubectl create rolebinding rb --role=r --serviceaccount=<ns>:<name>`.\n\n**Gotcha:** `--serviceaccount` takes `ns:name`, not just the name.",
+      "prompt": "In namespace `cks-learn` a ServiceAccount `reader` already exists. Create a Role granting only `get,list` on `pods` and a RoleBinding binding it to that SA.\n\nTarget: SA `reader` can `list pods` (`yes`) but cannot `delete pods` (`no`) in `cks-learn`.",
+      "hint": "`kubectl -n cks-learn create role pod-reader --verb=get,list --resource=pods`, then `kubectl -n cks-learn create rolebinding reader-pr --role=pod-reader --serviceaccount=cks-learn:reader`.",
+      "solution": "kubectl -n cks-learn create role pod-reader --verb=get,list --resource=pods\nkubectl -n cks-learn create rolebinding reader-pr --role=pod-reader --serviceaccount=cks-learn:reader\nkubectl auth can-i list pods   --as=system:serviceaccount:cks-learn:reader -n cks-learn   # yes\nkubectl auth can-i delete pods --as=system:serviceaccount:cks-learn:reader -n cks-learn   # no",
+      "setup": "setup/q6_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "SA reader can list pods but cannot delete pods in cks-learn",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "ServiceAccount token hardening",
+      "teach": "By default every pod auto-mounts a ServiceAccount token an attacker could steal. For pods that never call the API, set `automountServiceAccountToken: false` on the **ServiceAccount**, then point the pod at it with `serviceAccountName` so it gets no token volume.\n\n**Gotcha:** `automountServiceAccountToken` sits at the **top level** of the SA object, not inside a `spec:` block — a common YAML mistake.",
+      "prompt": "In namespace `cks-learn`, create a ServiceAccount `no-token` with `automountServiceAccountToken: false`, then run a pod `hardened` (image `busybox:1.36`, e.g. `sleep 3600`) using that ServiceAccount.\n\nTarget: SA `no-token` has `automountServiceAccountToken: false` AND pod `hardened` runs as SA `no-token` with no SA token volume mounted.",
+      "hint": "Create the SA with `automountServiceAccountToken: false` (top level), then create the pod with `serviceAccountName: no-token`. Apply with `kubectl apply -f -`.",
+      "solution": "kubectl apply -f - <<'YAML'\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: no-token\n  namespace: cks-learn\nautomountServiceAccountToken: false\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: hardened\n  namespace: cks-learn\nspec:\n  serviceAccountName: no-token\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "setup": "setup/q7_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "SA no-token has automount disabled and pod hardened uses it with no token mounted",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose & fix: RBAC that grants the wrong access",
+      "teach": "When `kubectl auth can-i` says `no` for something a SA should have, the fault is usually a wrong `resources`, `verbs`, or `apiGroups` entry in the **Role**. Inspect with `kubectl -n cks-learn get role <r> -o yaml` and compare each rule to what's required.\n\n**Gotcha:** fix the existing Role, don't create a second one — and keep it least-privilege: grant exactly what's needed, nothing more.",
+      "prompt": "In `cks-learn`, SA `audit-sa` is bound (via RoleBinding `audit-rb` → Role `audit-role`) but it still **cannot** `list pods` — the Role was seeded pointing at the wrong resource. Diagnose and fix the Role so `audit-sa` can `get,list` pods, without granting write access. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: SA `audit-sa` can `list pods` (`yes`) but cannot `delete pods` (`no`) in `cks-learn`.",
+      "hint": "`kubectl -n cks-learn get role audit-role -o yaml` — its rule lists the wrong `resources` (not `pods`). `kubectl -n cks-learn edit role audit-role` and set `resources: [\"pods\"]` with `verbs: [\"get\",\"list\"]`.",
+      "solution": "# describe/get shows audit-role grants get,list on 'services' instead of 'pods'\nkubectl -n cks-learn patch role audit-role --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/rules/0/resources\",\"value\":[\"pods\"]}]'\nkubectl auth can-i list pods   --as=system:serviceaccount:cks-learn:audit-sa -n cks-learn   # yes\nkubectl auth can-i delete pods --as=system:serviceaccount:cks-learn:audit-sa -n cks-learn   # no",
+      "setup": "setup/q8_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "SA audit-sa can list pods but cannot delete pods in cks-learn (Role fault fixed)",
+          "script": "validate/q8_s1.sh",
+          "weightage": 13
         }
       ]
     }

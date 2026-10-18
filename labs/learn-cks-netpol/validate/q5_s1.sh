@@ -1,23 +1,21 @@
 #!/bin/bash
-NS=netpol-learn
-NAME=allow-egress-to-db
-if ! kubectl -n "$NS" get networkpolicy "$NAME" >/dev/null 2>&1; then
-  echo "❌ NetworkPolicy '$NAME' not found in $NS."; exit 1
-fi
-TGT=$(kubectl -n "$NS" get networkpolicy "$NAME" -o jsonpath='{.spec.podSelector.matchLabels.app}' 2>/dev/null)
-if [ "$TGT" != "web" ]; then
-  echo "❌ $NAME must target pods with app=web (got app='${TGT:-none}')."; exit 1
-fi
-if ! kubectl -n "$NS" get networkpolicy "$NAME" -o jsonpath='{.spec.policyTypes}' 2>/dev/null | grep -q 'Egress'; then
-  echo "❌ $NAME policyTypes must include Egress."; exit 1
-fi
-DST=$(kubectl -n "$NS" get networkpolicy "$NAME" -o jsonpath='{.spec.egress[0].to[0].podSelector.matchLabels.app}' 2>/dev/null)
-if [ "$DST" != "db" ]; then
-  echo "❌ $NAME egress 'to' must be a podSelector matching app=db (got app='${DST:-none}')."; exit 1
-fi
-PROTO=$(kubectl -n "$NS" get networkpolicy "$NAME" -o jsonpath='{.spec.egress[0].ports[0].protocol}' 2>/dev/null)
-PORT=$(kubectl -n "$NS" get networkpolicy "$NAME" -o jsonpath='{.spec.egress[0].ports[0].port}' 2>/dev/null)
-if [ "$PROTO" != "TCP" ] || [ "$PORT" != "5432" ]; then
-  echo "❌ $NAME egress must allow TCP port 5432 (got protocol='${PROTO:-none}' port='${PORT:-none}')."; exit 1
-fi
-echo "✅ $NAME allows egress from app=web only to app=db on TCP/5432"; exit 0
+J=$(kubectl -n netpol-learn get networkpolicy default-deny-egress-allow-dns -o json 2>/dev/null)
+[ -z "$J" ] && { echo "❌ NetworkPolicy 'default-deny-egress-allow-dns' not found in netpol-learn"; exit 1; }
+export J
+python3 - <<'PY'
+import os,json,sys
+sp=json.loads(os.environ['J'])["spec"]
+def fail(m): print("❌ "+m); sys.exit(1)
+if sp.get("podSelector") not in ({}, None): fail("podSelector must be empty ({}) to select all pods, got %r"%sp.get("podSelector"))
+if "Egress" not in (sp.get("policyTypes") or []): fail("policyTypes must include Egress, got %r"%sp.get("policyTypes"))
+eg=sp.get("egress") or []
+if len(eg)!=1: fail("expected exactly 1 egress rule, got %d"%len(eg))
+to=eg[0].get("to") or []
+if len(to)!=1: fail("egress rule must have exactly 1 'to' entry, got %d"%len(to))
+if (to[0].get("namespaceSelector") or {}).get("matchLabels")!={"kubernetes.io/metadata.name":"kube-system"}:
+    fail("egress 'to' must be namespaceSelector kubernetes.io/metadata.name=kube-system, got %r"%to[0].get("namespaceSelector"))
+ports={(p.get("protocol"),p.get("port")) for p in (eg[0].get("ports") or [])}
+if ("UDP",53) not in ports: fail("egress must allow UDP/53 for DNS, got ports %r"%sorted(map(str,ports)))
+if ("TCP",53) not in ports: fail("egress must ALSO allow TCP/53 for DNS, got ports %r"%sorted(map(str,ports)))
+print("✅ default-deny-egress-allow-dns: all pods egress-isolated, DNS UDP+TCP/53 to kube-system")
+PY

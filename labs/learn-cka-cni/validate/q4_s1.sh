@@ -1,4 +1,12 @@
 #!/bin/bash
-EP=$(kubectl get endpoints web -n cni-learn -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null)
-if [ -n "$EP" ]; then echo "✅ Service 'web' has active endpoints (e.g. $EP)"; exit 0; fi
-echo "❌ Service 'web' has no endpoints — expose the web deployment: kubectl expose deployment web -n cni-learn --name=web --port=80"; exit 1
+if ! kubectl get pod dnscheck -n cni-learn >/dev/null 2>&1; then
+  echo "❌ create pod 'dnscheck' that runs: nslookup kubernetes.default.svc.cluster.local"; exit 1
+fi
+LOG=$(kubectl logs dnscheck -n cni-learn 2>/dev/null)
+if echo "$LOG" | grep -qiE "can't resolve|NXDOMAIN|server can't find"; then
+  echo "❌ dnscheck DNS lookup failed — query the full FQDN kubernetes.default.svc.cluster.local"; exit 1
+fi
+if echo "$LOG" | grep -qi "kubernetes.default.svc.cluster.local" && echo "$LOG" | grep -qi "Address"; then
+  echo "✅ dnscheck resolved kubernetes.default.svc.cluster.local via CoreDNS"; exit 0
+fi
+echo "❌ dnscheck logs show no successful lookup yet — run: nslookup kubernetes.default.svc.cluster.local"; exit 1

@@ -1,95 +1,99 @@
 {
   "id": "learn-cka-scheduling",
-  "name": "Learn: Scheduling",
+  "name": "Learn: Scheduling (hardened)",
   "category": "CKA",
   "type": "learn",
-  "description": "Master how pods land on nodes \u2014 node labels + nodeSelector, taints & tolerations, nodeAffinity, manual scheduling with nodeName, and running one pod per node with a DaemonSet.",
-  "objective": "CKA \u203a Workloads & Scheduling (15%). Goal: control where pods land \u2014 labels/nodeSelector, taints & tolerations, nodeAffinity, manual scheduling, and DaemonSets.",
+  "objective": "CKA › Workloads & Scheduling. Drill EVERY way to control where pods land, harder than the exam: node labels + nodeSelector, taints & tolerations (Equal + Exists), required and preferred nodeAffinity, pod anti-affinity spread, manual nodeName scheduling, DaemonSet coverage, and a no-hint diagnose-and-fix for an unschedulable pod. Graded exactly, per requirement.",
+  "description": "Eight strict scheduling practicals on a 1-control-plane + 2-worker cluster. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
-      "title": "Labels + nodeSelector",
-      "teach": "A pod's `spec.nodeSelector` is the simplest way to steer scheduling: the pod only lands on a node whose labels contain **every** key/value listed (exact equality, AND'ed). Label a node with `kubectl label node <node> key=value`, then put the same key/value under `spec.nodeSelector`.\n\n**Gotcha:** if no node matches the selector, the pod stays `Pending` forever \u2014 check `kubectl describe pod` events.",
-      "prompt": "A worker node named like `$W1` exists. Label it `disktype=ssd`, then in namespace `sched-learn` create a pod `ssd-pod` (image `busybox:1.36`, command `sleep 3600`) with a `nodeSelector` of `disktype=ssd`.\n\nTarget: pod `ssd-pod` is `Running` and its `.spec.nodeName` equals the labeled node.",
-      "hint": "`kubectl label node \"$W1\" disktype=ssd`, then build the pod YAML with `spec.nodeSelector.disktype: ssd` (or `kubectl run ssd-pod --image=busybox:1.36 --overrides=... -- sleep 3600`).",
+      "title": "Label a node + nodeSelector",
+      "teach": "`spec.nodeSelector` is the simplest placement control: the pod only lands on a node whose labels contain **every** key/value listed (exact equality, AND'ed). Label a node with `kubectl label node <node> key=value`.\n\n**Gotcha:** if no node carries the label, the pod sits `Pending` forever — check `kubectl describe pod` events.",
+      "prompt": "Worker node `$W1` exists. Label it `disktype=ssd`, then in namespace `sched-learn` create pod `ssd-pod` (image `busybox:1.36`, command `sleep 3600`) with `nodeSelector` `disktype=ssd`.\n\nTarget: `ssd-pod` is `Running` and its `.spec.nodeName` is the node you labeled `disktype=ssd`.",
+      "hint": "`kubectl label node \"$W1\" disktype=ssd`, then set `spec.nodeSelector.disktype: ssd` on the pod.",
       "solution": "kubectl label node \"$W1\" disktype=ssd --overwrite\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: ssd-pod\n  namespace: sched-learn\nspec:\n  nodeSelector:\n    disktype: ssd\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "setup": "setup/q0_setup.sh",
       "verification": [
-        {
-          "id": "1",
-          "description": "ssd-pod is Running on the node labeled disktype=ssd",
-          "script": "validate/q1_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q1_setup.sh"
+        { "id": "1", "description": "ssd-pod Running on a disktype=ssd node via nodeSelector", "script": "validate/c1.sh", "weightage": 12 }
+      ]
     },
     {
       "id": "2",
-      "title": "Taints + tolerations",
-      "teach": "A **taint** repels pods that don't tolerate it \u2014 `kubectl taint node <node> key=value:NoSchedule`. A pod opts in with a matching **toleration** (`key`, `value`, `effect`) under `spec.tolerations`.\n\n**Gotcha:** a toleration only *permits* scheduling onto the tainted node, it doesn't *attract* the pod there \u2014 pair it with a `nodeSelector`/affinity (as this task does) to actually land on that node.",
-      "prompt": "Taint node `$W1` with `workload=batch:NoSchedule`. Then in `sched-learn` create pod `batch-pod` (`busybox:1.36`, `sleep 3600`) that **tolerates** that taint AND uses a `nodeSelector`/affinity so it lands on `$W1`.\n\nTarget: `batch-pod` is `Running` on `$W1` (proving the toleration let it through the taint).",
-      "hint": "`kubectl taint node \"$W1\" workload=batch:NoSchedule`. Give the pod a toleration `{key: workload, value: batch, effect: NoSchedule}` plus `nodeSelector: {disktype: ssd}` (reuse step 1's label) so it targets $W1.",
-      "solution": "kubectl taint node \"$W1\" workload=batch:NoSchedule --overwrite\nkubectl label node \"$W1\" disktype=ssd --overwrite\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: batch-pod\n  namespace: sched-learn\nspec:\n  nodeSelector:\n    disktype: ssd\n  tolerations:\n  - key: workload\n    operator: Equal\n    value: batch\n    effect: NoSchedule\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "title": "Taint a node + matching toleration",
+      "teach": "A **taint** repels pods that don't tolerate it: `kubectl taint node <node> key=value:NoSchedule`. A pod opts in with a `toleration` whose `key`/`value`/`effect` match (operator `Equal`).\n\n**Gotcha:** a toleration only *permits* the node, it doesn't *attract* — pair it with `nodeSelector`/affinity to actually land there.",
+      "prompt": "Taint node `$W1` with `workload=batch:NoSchedule`. Then in `sched-learn` create pod `batch-pod` (`busybox:1.36`, `sleep 3600`) that **tolerates** that taint (operator `Equal`) AND uses `nodeSelector disktype=ssd` so it lands on `$W1`.\n\nTarget: `$W1` carries the taint and `batch-pod` is `Running` on `$W1` with a matching toleration.",
+      "hint": "`kubectl taint node \"$W1\" workload=batch:NoSchedule`. Toleration `{key: workload, operator: Equal, value: batch, effect: NoSchedule}` plus `nodeSelector: {disktype: ssd}`.",
+      "solution": "kubectl taint node \"$W1\" workload=batch:NoSchedule --overwrite\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: batch-pod\n  namespace: sched-learn\nspec:\n  nodeSelector:\n    disktype: ssd\n  tolerations:\n  - key: workload\n    operator: Equal\n    value: batch\n    effect: NoSchedule\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        {
-          "id": "1",
-          "description": "node $W1 is tainted and batch-pod tolerates it and runs there",
-          "script": "validate/q2_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q2_setup.sh"
+        { "id": "1", "description": "$W1 tainted workload=batch:NoSchedule and batch-pod Running there with matching toleration", "script": "validate/c2.sh", "weightage": 14 }
+      ]
     },
     {
       "id": "3",
-      "title": "nodeAffinity (requiredDuringScheduling)",
-      "teach": "**nodeAffinity** (under `spec.affinity.nodeAffinity`) is a richer nodeSelector using `matchExpressions` with operators like `In`, `NotIn`, `Exists`, `Gt`, `Lt`. The **hard** form `requiredDuringSchedulingIgnoredDuringExecution` must be satisfied or the pod stays `Pending`.\n\n**Gotcha:** affinity attracts but doesn't defeat taints \u2014 a tainted target node still needs a toleration, hence this pod's `tolerations: [{operator: Exists}]`.",
-      "prompt": "Node `$W1` is labeled `tier=gold`. In `sched-learn` create pod `affinity-pod` (`busybox:1.36`, `sleep 3600`) using **required** nodeAffinity matching `tier In [gold]`.\n\nTarget: `affinity-pod` is `Running` on the node labeled `tier=gold`.",
-      "hint": "Under `spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0]` set `key: tier`, `operator: In`, `values: [gold]`.",
+      "title": "Required nodeAffinity (In operator)",
+      "teach": "**nodeAffinity** (`spec.affinity.nodeAffinity`) is a richer nodeSelector using `matchExpressions` with operators `In`, `NotIn`, `Exists`, `Gt`, `Lt`. The **hard** form `requiredDuringSchedulingIgnoredDuringExecution` must be satisfied or the pod stays `Pending`.\n\n**Gotcha:** affinity attracts but doesn't defeat taints — since `$W1` is now tainted, this pod also needs a toleration.",
+      "prompt": "Node `$W1` is labeled `tier=gold`. In `sched-learn` create pod `affinity-pod` (`busybox:1.36`, `sleep 3600`) using **required** nodeAffinity matching `tier In [gold]`, tolerating any taint so it can land on `$W1`.\n\nTarget: `affinity-pod` is `Running` on the `tier=gold` node via required nodeAffinity.",
+      "hint": "Under `requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0]` set `key: tier`, `operator: In`, `values: [gold]`. Add `tolerations: [{operator: Exists}]`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: affinity-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        nodeSelectorTerms:\n        - matchExpressions:\n          - key: tier\n            operator: In\n            values: [\"gold\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        {
-          "id": "1",
-          "description": "affinity-pod is Running on the node labeled tier=gold",
-          "script": "validate/q3_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q3_setup.sh"
+        { "id": "1", "description": "affinity-pod Running on tier=gold node via required nodeAffinity", "script": "validate/c3.sh", "weightage": 14 }
+      ]
     },
     {
       "id": "4",
-      "title": "Manual scheduling with nodeName",
-      "teach": "Setting `spec.nodeName` directly **bypasses the scheduler** \u2014 the kubelet on that exact node just picks the pod up and runs it. Use it to pin a pod deterministically or when the scheduler is unavailable.\n\n**Gotcha:** a wrong/nonexistent node name does **not** error \u2014 the pod sits `Pending` with no scheduler event, since no scheduler ever looked at it. Copy the exact name from `kubectl get nodes`.",
-      "prompt": "In `sched-learn` create pod `manual-pod` (`busybox:1.36`, `sleep 3600`) that is bound to worker node `$W2` **via `spec.nodeName`** (no nodeSelector/affinity).\n\nTarget: `manual-pod` is `Running` and `.spec.nodeName` == `$W2`.",
-      "hint": "Add `nodeName: <the $W2 node name>` at the top of `spec`. Find the name with `kubectl get nodes`.",
-      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: manual-pod\n  namespace: sched-learn\nspec:\n  nodeName: $W2\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "title": "Preferred nodeAffinity (soft, weighted)",
+      "teach": "The **soft** form `preferredDuringSchedulingIgnoredDuringExecution` is a *preference*, not a rule: each entry has a `weight` (1–100) and a `preference` term. The scheduler favors matching nodes but still schedules elsewhere if none match.\n\n**Gotcha:** preferred affinity never leaves a pod `Pending` — if no node matches it just lands somewhere else, so you can't rely on it for a hard placement requirement.",
+      "prompt": "In `sched-learn` create pod `prefer-pod` (`busybox:1.36`, `sleep 3600`) that **prefers** (weight `80`) nodes labeled `zone=b`, tolerating any taint. Node `$W2` is labeled `zone=b`.\n\nTarget: `prefer-pod` is `Running` and declares a `preferredDuringScheduling` nodeAffinity entry of weight `80` matching `zone In [b]`.",
+      "hint": "`preferredDuringSchedulingIgnoredDuringExecution: [{weight: 80, preference: {matchExpressions: [{key: zone, operator: In, values: [b]}]}}]`; add `tolerations: [{operator: Exists}]`.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: prefer-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      preferredDuringSchedulingIgnoredDuringExecution:\n      - weight: 80\n        preference:\n          matchExpressions:\n          - key: zone\n            operator: In\n            values: [\"b\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        {
-          "id": "1",
-          "description": "manual-pod is Running and pinned to $W2 via nodeName",
-          "script": "validate/q4_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q4_setup.sh"
+        { "id": "1", "description": "prefer-pod Running with preferred nodeAffinity weight 80, zone In [b]", "script": "validate/c4.sh", "weightage": 12 }
+      ]
     },
     {
       "id": "5",
-      "title": "DaemonSet (one pod per node)",
-      "teach": "A **DaemonSet** runs one copy of a pod on every matching node, adding/removing pods as nodes join/leave. Like a Deployment but with no `replicas`, and `spec.selector.matchLabels` must match the pod template labels.\n\n**Gotcha:** control-plane nodes carry a `NoSchedule` taint, so to cover *every* node the pod template needs a broad toleration \u2014 `tolerations: [{operator: Exists}]` tolerates all taints.",
-      "prompt": "In `sched-learn` create a DaemonSet `node-agent` (`busybox:1.36`, `sleep 3600`, label `app=node-agent`) with a toleration broad enough (`operator: Exists`) to run on **every** node including the control plane.\n\nTarget: the DaemonSet has one ready pod on each node \u2014 `desiredNumberScheduled` == number of nodes and `numberReady` matches.",
-      "hint": "DaemonSet selector `app=node-agent`, pod template tolerations `- operator: Exists`. Verify with `kubectl -n sched-learn get ds node-agent` and `kubectl get nodes`.",
+      "title": "Manual scheduling with nodeName",
+      "teach": "Setting `spec.nodeName` directly **bypasses the scheduler** — the kubelet on that exact node picks the pod up and runs it. Use it to pin a pod deterministically or when the scheduler is unavailable.\n\n**Gotcha:** a wrong/nonexistent node name does **not** error — the pod sits `Pending` with no scheduler event, since no scheduler ever looked at it.",
+      "prompt": "In `sched-learn` create pod `manual-pod` (`busybox:1.36`, `sleep 3600`) bound to worker `$W2` **via `spec.nodeName`** (no nodeSelector/affinity).\n\nTarget: `manual-pod` is `Running` and `.spec.nodeName` == `$W2`.",
+      "hint": "Put `nodeName: <the $W2 node name>` in `spec`. Find the exact name with `kubectl get nodes`.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: manual-pod\n  namespace: sched-learn\nspec:\n  nodeName: $W2\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "verification": [
+        { "id": "1", "description": "manual-pod Running and pinned to $W2 via nodeName", "script": "validate/c5.sh", "weightage": 12 }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "DaemonSet on every node",
+      "teach": "A **DaemonSet** runs one copy of a pod on every matching node, adding/removing as nodes join/leave. Like a Deployment but with no `replicas`, and `spec.selector.matchLabels` must match the template labels.\n\n**Gotcha:** control-plane nodes (and your tainted `$W1`) carry `NoSchedule` taints — to cover *every* node the template needs `tolerations: [{operator: Exists}]`, which tolerates all taints.",
+      "prompt": "In `sched-learn` create DaemonSet `node-agent` (`busybox:1.36`, `sleep 3600`, label `app=node-agent`) with a toleration broad enough (`operator: Exists`) to run on **every** node including the control plane and the tainted `$W1`.\n\nTarget: `desiredNumberScheduled` == number of nodes and `numberReady` matches.",
+      "hint": "DaemonSet selector `app=node-agent`; template `tolerations: [{operator: Exists}]`. Verify with `kubectl -n sched-learn get ds node-agent` vs `kubectl get nodes`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: node-agent\n  namespace: sched-learn\nspec:\n  selector:\n    matchLabels:\n      app: node-agent\n  template:\n    metadata:\n      labels:\n        app: node-agent\n    spec:\n      tolerations:\n      - operator: Exists\n      containers:\n      - name: c\n        image: busybox:1.36\n        command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        {
-          "id": "1",
-          "description": "DaemonSet node-agent runs one ready pod on every node",
-          "script": "validate/q5_s1.sh",
-          "weightage": 20
-        }
-      ],
-      "setup": "setup/q5_setup.sh"
+        { "id": "1", "description": "DaemonSet node-agent runs one ready pod on every node", "script": "validate/c6.sh", "weightage": 12 }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Pod anti-affinity (spread across nodes)",
+      "teach": "**podAntiAffinity** keeps pods apart: the required form with `topologyKey: kubernetes.io/hostname` and a `labelSelector` matching the pod's own label forces replicas onto **different** nodes. The scheduler won't co-locate two matching pods on one host.\n\n**Gotcha:** if replicas exceed available nodes, the extra pods stay `Pending` — hard anti-affinity can't double up on a host.",
+      "prompt": "In `sched-learn` create a 2-replica Deployment `spread` (`busybox:1.36`, `sleep 3600`, pod label `app=spread`) with **required** podAntiAffinity on `topologyKey: kubernetes.io/hostname` matching `app=spread`, tolerating any taint.\n\nTarget: both `spread` replicas are `Running` on **different** nodes via required podAntiAffinity.",
+      "hint": "`affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution: [{labelSelector: {matchLabels: {app: spread}}, topologyKey: kubernetes.io/hostname}]`; add `tolerations: [{operator: Exists}]` so both nodes are usable.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: spread\n  namespace: sched-learn\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: spread\n  template:\n    metadata:\n      labels:\n        app: spread\n    spec:\n      tolerations:\n      - operator: Exists\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                app: spread\n            topologyKey: kubernetes.io/hostname\n      containers:\n      - name: c\n        image: busybox:1.36\n        command: [\"sleep\",\"3600\"]\nEOF",
+      "verification": [
+        { "id": "1", "description": "spread: 2 replicas Running on 2 distinct nodes via required podAntiAffinity", "script": "validate/c7.sh", "weightage": 12 }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose & fix: a pod that won't schedule",
+      "teach": "A pod stuck `Pending` with **no node assigned** is a scheduling failure — run `kubectl describe pod <p>` and read **Events**: `0/N nodes are available` names the reason (a nodeSelector/affinity that matches nothing, or a taint with no toleration).\n\n**Gotcha:** fix the **Deployment template**, not the pod — the ReplicaSet recreates the pod, then confirm with `kubectl rollout status`.",
+      "prompt": "Deployment `sched-diag` in `sched-learn` shows `0/1` — its pod is `Pending` and never schedules. Diagnose the scheduling fault and fix it so the Deployment reports an available replica. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: Deployment `sched-diag` has at least 1 available replica.",
+      "hint": "`kubectl -n sched-learn describe pod -l app=sched-diag` → the events say no node matches its `nodeSelector` (disktype=nvme). Either remove that nodeSelector or point it at a label a node actually has, then watch `rollout status`.",
+      "solution": "# describe shows: 0/3 nodes available — node(s) didn't match nodeSelector disktype=nvme.\n# No node has disktype=nvme, so remove the impossible selector (an untainted node will take it).\nkubectl -n sched-learn patch deployment sched-diag --type=json \\\n  -p='[{\"op\":\"remove\",\"path\":\"/spec/template/spec/nodeSelector\"}]'\nkubectl -n sched-learn rollout status deployment/sched-diag",
+      "verification": [
+        { "id": "1", "description": "Deployment sched-diag has >=1 available replica (scheduling fault fixed)", "script": "validate/c8.sh", "weightage": 12 }
+      ]
     }
   ]
 }

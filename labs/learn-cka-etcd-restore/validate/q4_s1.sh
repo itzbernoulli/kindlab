@@ -1,19 +1,21 @@
 #!/bin/bash
-# /opt/etcd-datadir.txt on $CP must hold the etcd-data hostPath, and the live
-# manifest must still point its etcd-data volume at /var/lib/etcd (unchanged).
-if ! docker exec "$CP" test -f /opt/etcd-datadir.txt 2>/dev/null; then
-  echo "❌ /opt/etcd-datadir.txt not found on $CP — locate the etcd-data hostPath in /etc/kubernetes/manifests/etcd.yaml and write it there"; exit 1
+# The identity-flagged restore must produce /var/lib/etcd/etcd-restore2 with a
+# proper member tree (member/snap + member/wal), distinct from the step-3 dir,
+# with the live data dir untouched.
+if ! docker exec "$CP" test -d /var/lib/etcd/etcd-restore2 2>/dev/null; then
+  echo "❌ /var/lib/etcd/etcd-restore2 not found on $CP — restore again with --name/--initial-cluster/--initial-advertise-peer-urls into --data-dir /var/lib/etcd/etcd-restore2"; exit 1
 fi
-RECORDED=$(docker exec "$CP" cat /opt/etcd-datadir.txt 2>/dev/null | tr -d '[:space:]')
-if [ "$RECORDED" != "/var/lib/etcd" ]; then
-  echo "❌ /opt/etcd-datadir.txt should contain the etcd-data hostPath '/var/lib/etcd' (got '${RECORDED:-empty}')"; exit 1
+if ! docker exec "$CP" test -d /var/lib/etcd/etcd-restore2/member/snap 2>/dev/null; then
+  echo "❌ /var/lib/etcd/etcd-restore2 has no member/snap — the identity restore did not complete; check the flag values"; exit 1
 fi
-# The live manifest must be unchanged: etcd-data volume still maps /var/lib/etcd.
-MANIFEST=$(docker exec "$CP" cat /etc/kubernetes/manifests/etcd.yaml 2>/dev/null)
-if ! echo "$MANIFEST" | grep -q 'name: etcd-data'; then
-  echo "❌ the etcd-data volume is missing from /etc/kubernetes/manifests/etcd.yaml — do NOT modify the live manifest"; exit 1
+if ! docker exec "$CP" test -d /var/lib/etcd/etcd-restore2/member/wal 2>/dev/null; then
+  echo "❌ /var/lib/etcd/etcd-restore2 has no member/wal — the identity restore did not complete; check the flag values"; exit 1
 fi
-if ! echo "$MANIFEST" | grep -A2 'hostPath:' | grep -q 'path: /var/lib/etcd'; then
-  echo "❌ the live etcd-data hostPath no longer points at /var/lib/etcd — the manifest must stay unchanged in this step"; exit 1
+# Must be a second restore, not a rename of the step-3 dir.
+if ! docker exec "$CP" test -d /var/lib/etcd/etcd-restore/member 2>/dev/null; then
+  echo "❌ the step-3 restore dir /var/lib/etcd/etcd-restore is gone — do a SECOND restore into etcd-restore2, keep the first"; exit 1
 fi
-echo "✅ etcd-data hostPath located (/var/lib/etcd) and recorded; live manifest unchanged"; exit 0
+if ! docker exec "$CP" test -d /var/lib/etcd/member 2>/dev/null; then
+  echo "❌ the live /var/lib/etcd/member is missing — the restore must NOT touch the live data dir"; exit 1
+fi
+echo "✅ identity restore produced /var/lib/etcd/etcd-restore2 (member/snap + member/wal); step-3 dir and live data intact"; exit 0

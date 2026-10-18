@@ -1,88 +1,137 @@
 {
   "id": "learn-cka-storage",
-  "name": "Learn: Storage",
+  "name": "Learn: Storage (hardened)",
   "category": "CKA",
   "type": "learn",
-  "description": "Master Kubernetes storage step by step \u2014 StorageClasses, PersistentVolumes, static PVC binding, mounting a volume in a pod, and setting a default StorageClass.",
-  "objective": "CKA \u203a Storage (10%). Goal: define StorageClasses, static PVs and PVCs, binding and mounting, and the default-class annotation.",
+  "objective": "CKA › Storage. Drill EVERY storage corner harder than the exam: StorageClasses (provisioner, reclaimPolicy, binding mode), static PVs with a retain reclaim policy, explicit static PVC binding, mounting a PVC, subPath mounts, the default-class annotation, dynamic provisioning via the default class, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "description": "Eight strict storage practicals in namespace storage-learn. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
-      "title": "StorageClass",
-      "teach": "A cluster-scoped **StorageClass** describes a *kind* of storage. Its `provisioner` names the driver, `reclaimPolicy` (`Delete`/`Retain`) sets PV cleanup, and `volumeBindingMode` is `Immediate` or `WaitForFirstConsumer` (binds only once a pod schedules).\n\n**Gotcha:** `reclaimPolicy` and `volumeBindingMode` are **immutable** \u2014 delete and recreate to change them.",
-      "prompt": "Create a StorageClass named `fast-local` with provisioner `rancher.io/local-path`, `reclaimPolicy: Delete`, and `volumeBindingMode: WaitForFirstConsumer`.\n\nTarget: `kubectl get sc fast-local` shows the class with that provisioner and binding mode.",
-      "hint": "Write a StorageClass manifest (apiVersion `storage.k8s.io/v1`) with the three fields, then `kubectl apply -f`.",
+      "title": "StorageClass: provisioner, reclaimPolicy, binding mode",
+      "teach": "A cluster-scoped **StorageClass** names a `provisioner` (the driver), a `reclaimPolicy` (`Delete`/`Retain`) applied to PVs it creates, and a `volumeBindingMode` (`Immediate` or `WaitForFirstConsumer`, which delays binding until a pod schedules).\n\n**Gotcha:** `reclaimPolicy` and `volumeBindingMode` are **immutable** — to change them you must delete and recreate the class.",
+      "prompt": "Create a StorageClass `fast-local` with provisioner `rancher.io/local-path`, `reclaimPolicy: Delete`, and `volumeBindingMode: WaitForFirstConsumer`.\n\nTarget: `kubectl get sc fast-local` shows that provisioner, reclaim policy, and binding mode.",
+      "hint": "StorageClass manifest (apiVersion `storage.k8s.io/v1`) with top-level `provisioner`, `reclaimPolicy`, and `volumeBindingMode`, then `kubectl apply -f -`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: fast-local\nprovisioner: rancher.io/local-path\nreclaimPolicy: Delete\nvolumeBindingMode: WaitForFirstConsumer\nYAML",
+      "setup": "setup/q0_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "StorageClass fast-local exists with correct provisioner and binding mode",
-          "script": "validate/q1_s1.sh",
-          "weightage": 20
+          "description": "StorageClass fast-local: provisioner rancher.io/local-path, reclaimPolicy Delete, WaitForFirstConsumer",
+          "script": "validate/c1.sh",
+          "weightage": 12
         }
       ]
     },
     {
       "id": "2",
-      "title": "PersistentVolume (hostPath)",
-      "teach": "A **PersistentVolume (PV)** is cluster-scoped storage an admin pre-provisions (**static**). Set `capacity.storage`, `accessModes` (e.g. `ReadWriteOnce`), `storageClassName`, and one backing source \u2014 here `hostPath`.\n\n**Gotcha:** `hostPath` only works on a single node; it isn't suitable for real multi-node clusters.",
-      "prompt": "Create a PersistentVolume named `pv-data` with capacity `1Gi`, accessModes `ReadWriteOnce`, `hostPath` at `/mnt/data`, and `storageClassName: fast-local`.\n\nTarget: `kubectl get pv pv-data` shows a 1Gi RWO volume.",
-      "hint": "PV manifest: `spec.capacity.storage: 1Gi`, `spec.accessModes: [ReadWriteOnce]`, `spec.hostPath.path: /mnt/data`, `spec.storageClassName: fast-local`.",
-      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolume\nmetadata:\n  name: pv-data\nspec:\n  capacity:\n    storage: 1Gi\n  accessModes:\n  - ReadWriteOnce\n  storageClassName: fast-local\n  hostPath:\n    path: /mnt/data\nYAML",
+      "title": "Static PersistentVolume with Retain",
+      "teach": "A **PersistentVolume (PV)** is cluster-scoped storage an admin pre-provisions (**static**). Set `capacity.storage`, `accessModes`, `storageClassName`, a backing source (here `hostPath`), and `persistentVolumeReclaimPolicy: Retain` so the PV (and its data) survives after its claim is deleted.\n\n**Gotcha:** a PV's `persistentVolumeReclaimPolicy` is set on the **PV itself** — the StorageClass `reclaimPolicy` only applies to volumes the class *dynamically* provisions, not to this hand-made PV.",
+      "prompt": "Create a PersistentVolume `pv-data`: capacity `1Gi`, accessModes `ReadWriteOnce`, `storageClassName: fast-local`, `hostPath` path `/mnt/data`, and `persistentVolumeReclaimPolicy: Retain`.\n\nTarget: `kubectl get pv pv-data` shows a 1Gi RWO Retain volume in class fast-local.",
+      "hint": "PV spec: `capacity.storage: 1Gi`, `accessModes: [ReadWriteOnce]`, `storageClassName: fast-local`, `hostPath.path: /mnt/data`, `persistentVolumeReclaimPolicy: Retain`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolume\nmetadata:\n  name: pv-data\nspec:\n  capacity:\n    storage: 1Gi\n  accessModes:\n  - ReadWriteOnce\n  storageClassName: fast-local\n  persistentVolumeReclaimPolicy: Retain\n  hostPath:\n    path: /mnt/data\nYAML",
       "verification": [
         {
           "id": "1",
-          "description": "PV pv-data exists with 1Gi capacity and ReadWriteOnce access mode",
-          "script": "validate/q2_s1.sh",
-          "weightage": 20
+          "description": "PV pv-data: 1Gi, RWO, class fast-local, hostPath /mnt/data, reclaimPolicy Retain",
+          "script": "validate/c2.sh",
+          "weightage": 12
         }
       ]
     },
     {
       "id": "3",
-      "title": "PersistentVolumeClaim (static bind)",
-      "teach": "A **PersistentVolumeClaim (PVC)** is a *namespaced* request for storage. To bind a specific PV statically, set `spec.volumeName` to that PV's name; `accessModes` and `storageClassName` must still match. When bound, both PVC and PV show status `Bound`.\n\n**Gotcha:** if the request exceeds capacity or any field mismatches, the PVC stays `Pending`.",
-      "prompt": "In namespace `storage-learn`, create a PVC named `pvc-data` requesting `1Gi`, accessModes `ReadWriteOnce`, `storageClassName: fast-local`, bound explicitly to PV `pv-data` via `volumeName`.\n\nTarget: `kubectl -n storage-learn get pvc pvc-data` shows status `Bound` to `pv-data`.",
-      "hint": "PVC manifest with `spec.volumeName: pv-data` plus matching `storageClassName`, `accessModes`, and `resources.requests.storage: 1Gi`.",
+      "title": "Static PVC bound explicitly by volumeName",
+      "teach": "A **PersistentVolumeClaim (PVC)** is a namespaced request for storage. To bind a *specific* PV statically, set `spec.volumeName` to that PV's name; `accessModes`, `storageClassName`, and the requested size must still be satisfiable by the PV. When bound, the PVC shows status `Bound`.\n\n**Gotcha:** if `volumeName` points at a PV whose class or access mode mismatches — or the request exceeds its capacity — the PVC stays `Pending`.",
+      "prompt": "In namespace `storage-learn`, create PVC `pvc-data`: request `1Gi`, accessModes `ReadWriteOnce`, `storageClassName: fast-local`, bound explicitly to PV `pv-data` via `volumeName`.\n\nTarget: `kubectl -n storage-learn get pvc pvc-data` shows status `Bound` to `pv-data`.",
+      "hint": "PVC with `spec.volumeName: pv-data`, matching `storageClassName: fast-local`, `accessModes: [ReadWriteOnce]`, and `resources.requests.storage: 1Gi`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: pvc-data\n  namespace: storage-learn\nspec:\n  accessModes:\n  - ReadWriteOnce\n  storageClassName: fast-local\n  volumeName: pv-data\n  resources:\n    requests:\n      storage: 1Gi\nYAML\nkubectl -n storage-learn get pvc pvc-data",
       "verification": [
         {
           "id": "1",
           "description": "PVC pvc-data is Bound to pv-data",
-          "script": "validate/q3_s1.sh",
-          "weightage": 20
+          "script": "validate/c3.sh",
+          "weightage": 13
         }
       ]
     },
     {
       "id": "4",
       "title": "Mount the PVC in a pod",
-      "teach": "A pod consumes a PVC via `spec.volumes[].persistentVolumeClaim.claimName`, then mounts it into a container with `volumeMounts[].mountPath`. Give busybox a long-running command (`sleep 3600`) so the pod stays `Running`.\n\n**Gotcha:** if the PVC is `Pending` or missing, the pod never leaves `Pending` — it won't reach `Running`.",
-      "prompt": "In namespace `storage-learn`, create a pod named `app` running `busybox:1.36` (command `sleep 3600`) that mounts PVC `pvc-data` at `/data`.\n\nTarget: pod `app` reaches `Running` with the PVC mounted at `/data`.",
-      "hint": "Pod manifest: `spec.volumes[0].persistentVolumeClaim.claimName: pvc-data`, and in the container `volumeMounts[0].mountPath: /data`.",
-      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: app\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\", \"3600\"]\n    volumeMounts:\n    - name: data\n      mountPath: /data\n  volumes:\n  - name: data\n    persistentVolumeClaim:\n      claimName: pvc-data\nYAML\nkubectl -n storage-learn wait --for=condition=Ready pod/app --timeout=60s",
+      "teach": "A pod consumes a PVC via `spec.volumes[].persistentVolumeClaim.claimName`, then a container mounts it with `volumeMounts[].mountPath`. Give busybox `sleep 3600` so the pod stays `Running`.\n\n**Gotcha:** if the PVC is `Pending` or missing, the pod never leaves `Pending` — mounting an unbound claim blocks scheduling.",
+      "prompt": "In namespace `storage-learn`, create pod `app` (`busybox:1.36`, command `sleep 3600`) that mounts PVC `pvc-data` at `/data`.\n\nTarget: pod `app` reaches `Running` with `pvc-data` mounted at `/data`.",
+      "hint": "`spec.volumes[0].persistentVolumeClaim.claimName: pvc-data`; container `volumeMounts[0].mountPath: /data`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: app\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: data\n      mountPath: /data\n  volumes:\n  - name: data\n    persistentVolumeClaim:\n      claimName: pvc-data\nYAML\nkubectl -n storage-learn wait --for=condition=Ready pod/app --timeout=60s",
       "verification": [
         {
           "id": "1",
           "description": "pod app is Running with pvc-data mounted at /data",
-          "script": "validate/q4_s1.sh",
-          "weightage": 20
+          "script": "validate/c4.sh",
+          "weightage": 13
         }
       ]
     },
     {
       "id": "5",
-      "title": "Default StorageClass",
-      "teach": "A PVC that **omits** `storageClassName` uses the cluster's **default StorageClass**. Mark a class default with the annotation `storageclass.kubernetes.io/is-default-class: \"true\"` (via `kubectl patch` or `annotate`); `kubectl get sc` then flags it `(default)`.\n\n**Gotcha:** the value must be the quoted **string** `\"true\"`, and only one class should be default.",
-      "prompt": "Mark the StorageClass `fast-local` as the cluster default via the `storageclass.kubernetes.io/is-default-class` annotation.\n\nTarget: `kubectl get sc` shows `fast-local (default)`.",
+      "title": "subPath: mount one sub-directory of a volume",
+      "teach": "`volumeMounts[].subPath` mounts a single file or sub-directory of a volume instead of its root — handy to share one PVC across containers without them clobbering each other's paths. The subPath is created inside the volume if it doesn't exist.\n\n**Gotcha:** `subPath` is a field on the **volumeMount**, not the volume; a plain `mountPath` with no `subPath` would expose the whole volume.",
+      "prompt": "In namespace `storage-learn`, create pod `sub-app` (`busybox:1.36`, `sleep 3600`) that uses PVC `pvc-data` but mounts only its sub-directory `logs` at `/var/log/app` using `subPath: logs`.\n\nTarget: pod `sub-app` mounts `pvc-data` at `/var/log/app` with `subPath` = `logs`.",
+      "hint": "Same `persistentVolumeClaim` volume as before, but the `volumeMounts` entry adds `subPath: logs` alongside `mountPath: /var/log/app`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: sub-app\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: data\n      mountPath: /var/log/app\n      subPath: logs\n  volumes:\n  - name: data\n    persistentVolumeClaim:\n      claimName: pvc-data\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sub-app mounts pvc-data at /var/log/app with subPath logs",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Mark a StorageClass as the cluster default",
+      "teach": "A PVC that **omits** `storageClassName` uses the cluster's **default StorageClass**. Mark a class default with the annotation `storageclass.kubernetes.io/is-default-class: \"true\"` (via `kubectl patch` or `annotate`); `kubectl get sc` then flags it `(default)`.\n\n**Gotcha:** the value must be the quoted **string** `\"true\"`, and only one class should carry it — two defaults is an error.",
+      "prompt": "Mark StorageClass `fast-local` as the cluster default via the `storageclass.kubernetes.io/is-default-class` annotation.\n\nTarget: `kubectl get sc` shows `fast-local (default)`.",
       "hint": "`kubectl patch storageclass fast-local -p '{\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"}}}'`.",
       "solution": "kubectl patch storageclass fast-local -p '{\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"}}}'\nkubectl get sc",
       "verification": [
         {
           "id": "1",
-          "description": "StorageClass fast-local is marked default",
-          "script": "validate/q5_s1.sh",
-          "weightage": 20
+          "description": "StorageClass fast-local annotated is-default-class=\"true\"",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Dynamic provisioning via the default class",
+      "teach": "A PVC with **no** `storageClassName` is handled by the default class and **dynamically provisions** a PV. Because `fast-local` is `WaitForFirstConsumer`, the PVC stays `Pending` until a pod that uses it is scheduled — only then does it bind.\n\n**Gotcha:** with `WaitForFirstConsumer`, seeing the PVC `Pending` before any consumer exists is **normal**, not a failure — create the consuming pod to trigger binding.",
+      "prompt": "In namespace `storage-learn`:\n- create PVC `dyn-pvc` requesting `500Mi`, accessModes `ReadWriteOnce`, with **no** `storageClassName` (so it uses the default).\n- create pod `dyn-app` (`busybox:1.36`, `sleep 3600`) that mounts `dyn-pvc` at `/data` to trigger binding.\n\nTarget: `dyn-pvc` becomes `Bound` and pod `dyn-app` is `Running`.",
+      "hint": "Omit `storageClassName` entirely on the PVC (do NOT set it to \"\"). Then the pod referencing it via `persistentVolumeClaim.claimName: dyn-pvc` triggers the WaitForFirstConsumer bind.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: dyn-pvc\n  namespace: storage-learn\nspec:\n  accessModes:\n  - ReadWriteOnce\n  resources:\n    requests:\n      storage: 500Mi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: dyn-app\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: data\n      mountPath: /data\n  volumes:\n  - name: data\n    persistentVolumeClaim:\n      claimName: dyn-pvc\nYAML\nkubectl -n storage-learn wait --for=condition=Ready pod/dyn-app --timeout=90s",
+      "verification": [
+        {
+          "id": "1",
+          "description": "dyn-pvc is Bound (dynamically provisioned via default class) and dyn-app is Running",
+          "script": "validate/c7.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose & fix: a PVC stuck Pending",
+      "teach": "A PVC that references a `storageClassName` that **doesn't exist** in the cluster stays `Pending` forever — nothing provisions it. `kubectl -n <ns> describe pvc <p>` shows a warning like `storageclass.storage.k8s.io \"<name>\" not found`. The fix is to point it at a real class, which means deleting and recreating the PVC (its `storageClassName` is immutable).\n\n**Gotcha:** you cannot `kubectl edit` a bound/pending PVC's `storageClassName` — delete the PVC and recreate it referencing the existing `fast-local` class.",
+      "prompt": "PVC `broken-pvc` in `storage-learn` is stuck `Pending`. Diagnose why, then fix it so it becomes `Bound` (keep the same name `broken-pvc`, request `500Mi`, accessModes `ReadWriteOnce`).\n\nTarget: `kubectl -n storage-learn get pvc broken-pvc` shows status `Bound`.",
+      "hint": "`kubectl -n storage-learn describe pvc broken-pvc` → the referenced storageClassName doesn't exist. Delete it and recreate `broken-pvc` using a real class (e.g. `fast-local`), then a consumer pod triggers the WaitForFirstConsumer bind. The easiest bind: recreate it with `storageClassName: fast-local` and add a pod that mounts it.",
+      "solution": "# describe shows: storageclass ... not found\nkubectl -n storage-learn delete pvc broken-pvc\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: broken-pvc\n  namespace: storage-learn\nspec:\n  accessModes:\n  - ReadWriteOnce\n  storageClassName: fast-local\n  resources:\n    requests:\n      storage: 500Mi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: fix-consumer\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: d\n      mountPath: /data\n  volumes:\n  - name: d\n    persistentVolumeClaim:\n      claimName: broken-pvc\nYAML\nkubectl -n storage-learn wait --for=jsonpath='{.status.phase}'=Bound pvc/broken-pvc --timeout=90s",
+      "verification": [
+        {
+          "id": "1",
+          "description": "broken-pvc is Bound (bad storageClassName diagnosed and fixed)",
+          "script": "validate/c8.sh",
+          "weightage": 13
         }
       ]
     }

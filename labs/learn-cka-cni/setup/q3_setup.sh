@@ -1,26 +1,20 @@
 #!/bin/bash
-# Setup for step 3 (Fix the CNI): guarantee a restorable backup exists, then
-# DELETE the kindnet DaemonSet so the learner has to restore it.
-# q0_setup.sh is always able to bring kindnet back from $LAB_DIR/kindnet.yaml.
+# Seed step 3 (diagnose & fix): break the CNI on $W2 by removing its config file,
+# then pin pod 'netbroken' to $W2 so it hangs in ContainerCreating with no IP.
+# The learner restores it by bouncing kindnet on $W2.
 
-LAB_DIR="${LAB_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-BACKUP="$LAB_DIR/kindnet.yaml"
+NS=cni-learn
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
 
-# 1) Make sure we have a good kindnet backup BEFORE deleting it.
-if [ ! -s "$BACKUP" ]; then
-  if kubectl -n kube-system get ds kindnet >/dev/null 2>&1; then
-    kubectl -n kube-system get ds kindnet -o yaml 2>/dev/null \
-      | sed -e '/^status:/,$d' > "$BACKUP" 2>/dev/null
-  fi
-fi
+# Remove any previous netbroken pod (idempotent re-seed).
+kubectl -n "$NS" delete pod netbroken --ignore-not-found --force --grace-period=0 >/dev/null 2>&1
 
-# 2) Seed the broken pod the learner will see recover (no IP while CNI is down).
-kubectl delete pod netbroken -n default --ignore-not-found --wait=false >/dev/null 2>&1
+# Break the CNI on $W2: delete the kindnet conflist so new pods there get no networking.
+docker exec "$W2" rm -f /etc/cni/net.d/10-kindnet.conflist >/dev/null 2>&1
 
-# 3) Delete kindnet so new pods cannot get networking (the problem to fix).
-kubectl -n kube-system delete ds kindnet --ignore-not-found >/dev/null 2>&1
+# Pin a pod to $W2 — it will sit without an IP until the CNI config is restored.
+kubectl run netbroken -n "$NS" --image=busybox:1.36 \
+  --overrides="{\"spec\":{\"nodeName\":\"$W2\"}}" \
+  --command -- sleep 3600 >/dev/null 2>&1
 
-# 4) Create the stuck test pod (will sit in ContainerCreating until kindnet returns).
-kubectl run netbroken --image=busybox:1.36 --restart=Never --command -- sleep 3600 >/dev/null 2>&1
-
-echo "learn-cka-cni step 3 seeded: kindnet deleted, pod 'netbroken' stuck ContainerCreating (restore kindnet from $BACKUP)"
+echo "learn-cka-cni step 3 seeded: CNI config removed on $W2; pod 'netbroken' stuck without an IP"

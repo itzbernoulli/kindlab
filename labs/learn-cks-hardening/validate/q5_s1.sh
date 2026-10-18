@@ -1,24 +1,13 @@
 #!/bin/bash
-NS=cks-learn
-# 1) SA no-token must have automountServiceAccountToken: false
-AM=$(kubectl -n "$NS" get serviceaccount no-token -o jsonpath='{.automountServiceAccountToken}' 2>/dev/null)
-if [ -z "$AM" ]; then
-  echo "❌ ServiceAccount 'no-token' not found (or automount field unset) in $NS. Create it with automountServiceAccountToken: false."; exit 1
+POD="kube-apiserver-$CP"
+# Read the RUNNING apiserver command. --profiling must be present AND equal to false.
+FLAG=$(kubectl -n kube-system get pod "$POD" -o jsonpath='{.spec.containers[0].command}' 2>/dev/null \
+  | tr ',' '\n' | grep -- '--profiling' | head -n1)
+if [ -z "$FLAG" ]; then
+  echo "❌ --profiling flag not present on running $POD (apiserver down, or flag absent -> defaults to true). Add --profiling=false in /etc/kubernetes/manifests/kube-apiserver.yaml on $CP"; exit 1
 fi
-if [ "$AM" != "false" ]; then
-  echo "❌ ServiceAccount 'no-token' has automountServiceAccountToken='$AM' (want false)."; exit 1
+VAL=$(echo "$FLAG" | sed 's/.*--profiling=//; s/[^a-zA-Z].*//')
+if [ "$VAL" = "false" ]; then
+  echo "✅ running kube-apiserver has --profiling=false"; exit 0
 fi
-# 2) Pod hardened must exist and use the no-token SA
-PSA=$(kubectl -n "$NS" get pod hardened -o jsonpath='{.spec.serviceAccountName}' 2>/dev/null)
-if [ -z "$PSA" ]; then
-  echo "❌ Pod 'hardened' not found in $NS. Create it (image busybox:1.36) with serviceAccountName: no-token."; exit 1
-fi
-if [ "$PSA" != "no-token" ]; then
-  echo "❌ Pod 'hardened' uses serviceAccount '$PSA' (want no-token)."; exit 1
-fi
-# 3) No ServiceAccount token volume should be mounted into the pod.
-MOUNTS=$(kubectl -n "$NS" get pod hardened -o jsonpath='{.spec.containers[*].volumeMounts[*].mountPath}' 2>/dev/null)
-if echo "$MOUNTS" | grep -q '/var/run/secrets/kubernetes.io/serviceaccount'; then
-  echo "❌ Pod 'hardened' still mounts a ServiceAccount token. Ensure automount is disabled (SA or pod spec)."; exit 1
-fi
-echo "✅ SA 'no-token' has automount disabled and pod 'hardened' uses it with no token mounted"; exit 0
+echo "❌ --profiling is '${VAL}' on $CP (expected false). Set --profiling=false."; exit 1

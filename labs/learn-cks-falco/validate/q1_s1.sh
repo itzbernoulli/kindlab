@@ -7,6 +7,6 @@ if [ -z "$DS" ]; then
 fi
 if echo "$DS" | grep -qi 'falco'; then
   NAME=$(echo "$DS" | grep -i falco | head -1 | awk '{print $1}')
-  echo "✅ Falco DaemonSet '$NAME' exists in namespace '$NS'"; exit 0
+  echo "✅ Falco DaemonSet '$NAME' exists in namespace '$NS' running the Falco image"; exit 0
 fi
 echo "❌ a DaemonSet exists in '$NS' but none runs a Falco image. Deploy the falcosecurity/falco chart"; exit 1

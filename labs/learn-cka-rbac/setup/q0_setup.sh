@@ -1,12 +1,22 @@
 #!/bin/bash
-# Reset the learn environment to a clean slate.
-kubectl delete namespace rbac-learn --ignore-not-found --wait=false >/dev/null 2>&1
-kubectl delete clusterrole node-reader --ignore-not-found >/dev/null 2>&1
+# Prepare rbac-learn WITHOUT deleting the namespace (that races under load).
+# Ensure the ns exists, then do resource-level cleanup of everything this lab
+# creates (both namespaced and cluster-scoped), and re-seed the two ConfigMaps.
+NS=rbac-learn
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
+
+# Namespaced objects this lab builds (learner-created + any leftovers).
+kubectl -n "$NS" delete role pod-reader cm-reader log-reader secret-reader --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete rolebinding dev-pr ci-pr dev-deploy dev-cm dev-log auditor-sr --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" delete serviceaccount ci --ignore-not-found >/dev/null 2>&1
+
+# Cluster-scoped objects this lab builds.
+kubectl delete clusterrole node-reader deploy-admin --ignore-not-found >/dev/null 2>&1
 kubectl delete clusterrolebinding dev-nr --ignore-not-found >/dev/null 2>&1
-kubectl delete csr learn-dev --ignore-not-found >/dev/null 2>&1
-# wait for namespace to be gone, then recreate + seed the two configmaps
-for i in $(seq 1 20); do kubectl get ns rbac-learn >/dev/null 2>&1 || break; sleep 1; done
-kubectl create namespace rbac-learn >/dev/null 2>&1
-kubectl -n rbac-learn create configmap app-config --from-literal=k=v >/dev/null 2>&1
-kubectl -n rbac-learn create configmap other-config --from-literal=k=v >/dev/null 2>&1
-echo "rbac-learn ready (configmaps app-config, other-config seeded)"
+
+# Re-seed the two ConfigMaps used by the resourceNames step.
+kubectl -n "$NS" delete configmap app-config other-config --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" create configmap app-config   --from-literal=k=v >/dev/null 2>&1
+kubectl -n "$NS" create configmap other-config --from-literal=k=v >/dev/null 2>&1
+
+echo "rbac-learn ready (configmaps app-config, other-config seeded; lab objects cleaned)"

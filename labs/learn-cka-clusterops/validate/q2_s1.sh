@@ -5,5 +5,5 @@ if docker exec "$CP" grep -q 'bogus-flag' /etc/kubernetes/manifests/kube-schedul
 fi
 POD="kube-scheduler-$CP"
 READY=$(kubectl -n kube-system get pod "$POD" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null)
-if [ "$READY" = "true" ]; then echo "✅ kube-scheduler is Ready"; exit 0; fi
+if [ "$READY" = "true" ]; then echo "✅ kube-scheduler is Ready (1/1), bogus flag removed"; exit 0; fi
 echo "❌ kube-scheduler not Ready (ready='${READY:-none}'). After removing the bad flag, give the kubelet ~15s to restart the static pod."; exit 1

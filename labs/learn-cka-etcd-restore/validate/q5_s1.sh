@@ -1,15 +1,19 @@
 #!/bin/bash
-# Confirm the cluster survived the exercise: apiserver /healthz is ok AND the
-# learner actually performed the restore (so this cannot pass on an untouched cluster).
-if ! docker exec "$CP" test -d /var/lib/etcd/etcd-restore/member 2>/dev/null; then
-  echo "❌ no restored data dir found — complete the restore (step 3) before confirming health"; exit 1
+# /opt/etcd-datadir.txt on $CP must hold the etcd-data hostPath, and the live
+# manifest must still point its etcd-data volume at /var/lib/etcd (unchanged).
+if ! docker exec "$CP" test -f /opt/etcd-datadir.txt 2>/dev/null; then
+  echo "❌ /opt/etcd-datadir.txt not found on $CP — locate the etcd-data hostPath in /etc/kubernetes/manifests/etcd.yaml and write it there"; exit 1
 fi
-HZ=$(kubectl get --raw=/healthz 2>/dev/null)
-if [ "$HZ" != "ok" ]; then
-  echo "❌ apiserver /healthz is not ok (got '${HZ:-no response}') — etcd/control-plane is unhealthy"; exit 1
+RECORDED=$(docker exec "$CP" cat /opt/etcd-datadir.txt 2>/dev/null | tr -d '[:space:]')
+if [ "$RECORDED" != "/var/lib/etcd" ]; then
+  echo "❌ /opt/etcd-datadir.txt should contain the etcd-data hostPath '/var/lib/etcd' (got '${RECORDED:-empty}')"; exit 1
 fi
-# Double-check the control-plane node is Ready.
-if ! kubectl get nodes 2>/dev/null | grep -q ' Ready'; then
-  echo "❌ no Ready node reported — control plane is not healthy"; exit 1
+# The live manifest must be unchanged: etcd-data volume still maps /var/lib/etcd.
+MANIFEST=$(docker exec "$CP" cat /etc/kubernetes/manifests/etcd.yaml 2>/dev/null)
+if ! echo "$MANIFEST" | grep -q 'name: etcd-data'; then
+  echo "❌ the etcd-data volume is missing from /etc/kubernetes/manifests/etcd.yaml — do NOT modify the live manifest"; exit 1
 fi
-echo "✅ control plane healthy after the restore exercise (/healthz=ok, node Ready)"; exit 0
+if ! echo "$MANIFEST" | grep -A2 'hostPath:' | grep -q 'path: /var/lib/etcd'; then
+  echo "❌ the live etcd-data hostPath no longer points at /var/lib/etcd — the manifest must stay unchanged in this step"; exit 1
+fi
+echo "✅ etcd-data hostPath located (/var/lib/etcd) and recorded; live manifest unchanged"; exit 0

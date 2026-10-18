@@ -1,8 +1,15 @@
 #!/bin/bash
-if ! kubectl -n crd-learn get widget gadget >/dev/null 2>&1; then
-  echo "❌ Widget 'gadget' not found in crd-learn — create a Widget (apiVersion stable.example.com/v1) named gadget"; exit 1
-fi
-SIZE=$(kubectl -n crd-learn get widget gadget -o jsonpath='{.spec.size}' 2>/dev/null)
-COLOR=$(kubectl -n crd-learn get widget gadget -o jsonpath='{.spec.color}' 2>/dev/null)
-if [ "$SIZE" = "3" ] && [ "$COLOR" = "blue" ]; then echo "✅ Widget 'gadget' exists in crd-learn with size=3 color=blue"; exit 0; fi
-echo "❌ Widget 'gadget' spec values wrong — need spec.size=3 and spec.color=blue (got size='${SIZE}' color='${COLOR}')"; exit 1
+J=$(kubectl -n crd-learn get widget gadget -o json 2>/dev/null)
+[ -z "$J" ] && { echo "❌ Widget 'gadget' not found in crd-learn — create a Widget (apiVersion stable.example.com/v1) named gadget"; exit 1; }
+export J
+python3 - <<'PY'
+import os,json,sys
+w=json.loads(os.environ['J'])
+def fail(m): print("❌ "+m); sys.exit(1)
+if w.get("apiVersion")!="stable.example.com/v1": fail("apiVersion must be stable.example.com/v1 (got %r)"%w.get("apiVersion"))
+if w.get("kind")!="Widget": fail("kind must be Widget (got %r)"%w.get("kind"))
+spec=w.get("spec") or {}
+if spec.get("size")!=3: fail("spec.size must be 3 (got %r)"%spec.get("size"))
+if spec.get("color")!="blue": fail("spec.color must be blue (got %r)"%spec.get("color"))
+print("✅ Widget 'gadget' in crd-learn with size=3 color=blue")
+PY

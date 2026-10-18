@@ -1,13 +1,14 @@
 #!/bin/bash
-if ! kubectl get pod sandboxed -n runtimeclass-learn >/dev/null 2>&1; then
-  echo "❌ pod 'sandboxed' not found. Recreate it with gvisor + hardening."; exit 1
-fi
-RC=$(kubectl get pod sandboxed -n runtimeclass-learn -o jsonpath='{.spec.runtimeClassName}' 2>/dev/null)
-NR=$(kubectl get pod sandboxed -n runtimeclass-learn -o jsonpath='{.spec.securityContext.runAsNonRoot}' 2>/dev/null)
-DROP=$(kubectl get pod sandboxed -n runtimeclass-learn -o jsonpath='{.spec.containers[0].securityContext.capabilities.drop}' 2>/dev/null)
-if [ "$RC" != "gvisor" ]; then echo "❌ 'sandboxed' must keep runtimeClassName=gvisor (got '${RC:-<empty>}')."; exit 1; fi
-if [ "$NR" != "true" ]; then echo "❌ set spec.securityContext.runAsNonRoot: true (got '${NR:-<empty>}')."; exit 1; fi
-if echo "$DROP" | grep -q "ALL"; then
-  echo "✅ 'sandboxed' keeps gvisor, runs non-root, and drops ALL capabilities"; exit 0
-fi
-echo "❌ container must drop ALL capabilities (securityContext.capabilities.drop: [\"ALL\"]); got '${DROP:-<empty>}'."; exit 1
+JN=$(kubectl -n runtimeclass-learn get pod normal    -o json 2>/dev/null); [ -z "$JN" ] && { echo "❌ pod 'normal' not found in runtimeclass-learn."; exit 1; }
+JS=$(kubectl -n runtimeclass-learn get pod sandboxed -o json 2>/dev/null); [ -z "$JS" ] && { echo "❌ pod 'sandboxed' not found — create it (step 3) before contrasting."; exit 1; }
+export JN JS
+python3 - <<'PY'
+import os,json,sys
+n=json.loads(os.environ['JN'])["spec"]
+s=json.loads(os.environ['JS'])["spec"]
+def fail(m): print("❌ "+m); sys.exit(1)
+rcn=n.get("runtimeClassName")
+if rcn: fail("'normal' must have NO runtimeClassName (default runtime), got %r"%rcn)
+if s.get("runtimeClassName")!="gvisor": fail("'sandboxed' must keep runtimeClassName=gvisor (got %r)"%s.get("runtimeClassName"))
+print("✅ 'normal' uses the default runtime (empty runtimeClassName); 'sandboxed' uses gvisor — they differ")
+PY

@@ -1,8 +1,12 @@
 #!/bin/bash
-# Ensure the cks-learn namespace and the 'reader' ServiceAccount exist for the RBAC task.
-# Clean up any Role/RoleBinding from a previous attempt so the step starts fresh.
-kubectl get namespace cks-learn >/dev/null 2>&1 || kubectl create namespace cks-learn >/dev/null 2>&1
-kubectl -n cks-learn get serviceaccount reader >/dev/null 2>&1 || kubectl -n cks-learn create serviceaccount reader >/dev/null 2>&1
-kubectl -n cks-learn delete role pod-reader --ignore-not-found >/dev/null 2>&1
-kubectl -n cks-learn delete rolebinding reader-pr --ignore-not-found >/dev/null 2>&1
-echo "cks-learn ready with ServiceAccount 'reader' (grant it least-privilege pod read access)"
+# Disable NodeRestriction on the apiserver so the learner must re-enable it.
+# (kind/kubeadm enables it by default, so without this the task would always pass.)
+# Edits the --enable-admission-plugins value only; leaves other flags (and --profiling) intact.
+M=/etc/kubernetes/manifests/kube-apiserver.yaml
+docker exec "$CP" sh -c "
+  sed -i 's/,NodeRestriction//; s/NodeRestriction,//; s/=NodeRestriction/=/' $M
+  # if the flag value is now empty, remove the whole line
+  sed -i '/--enable-admission-plugins=\$/d' $M
+"
+echo "NodeRestriction disabled on kube-apiserver (re-enable it). Waiting for restart..."
+sleep 8

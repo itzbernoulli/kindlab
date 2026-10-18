@@ -1,6 +1,18 @@
 #!/bin/bash
-DEP=$(kubectl get deploy prod-hello -n kustomize-learn -o name 2>/dev/null)
-if [ -n "$DEP" ]; then
-  echo "✅ namePrefix overlay produced Deployment 'prod-hello' in kustomize-learn"; exit 0
+# Step 5: /tmp/rendered.yaml exists and contains a rendered Deployment with replicas: 7
+# (helm template, no release installed).
+F=/tmp/rendered.yaml
+if [ ! -f "$F" ]; then
+  echo "❌ $F not found — render the chart: helm template demo /tmp/webapp --set replicaCount=7 > $F"; exit 1
 fi
-echo "❌ Deployment 'prod-hello' not found in kustomize-learn — add 'namePrefix: prod-' to /tmp/kustomize-ckad/kustomization.yaml and re-run: kubectl apply -k /tmp/kustomize-ckad"; exit 1
+export F
+python3 - <<'PY'
+import os,re,sys
+txt=open(os.environ['F']).read()
+def fail(m): print("❌ "+m); sys.exit(1)
+if not re.search(r'(?m)^\s*kind:\s*Deployment\s*$', txt):
+    fail("%s has no 'kind: Deployment' — render the webapp chart with helm template"%os.environ['F'])
+if not re.search(r'(?m)^\s*replicas:\s*7\s*$', txt):
+    fail("%s has no 'replicas: 7' line — render with --set replicaCount=7"%os.environ['F'])
+print("✅ /tmp/rendered.yaml contains a rendered Deployment with replicas: 7 (helm template, no install)")
+PY

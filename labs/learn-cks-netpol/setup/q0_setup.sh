@@ -1,22 +1,45 @@
 #!/bin/bash
-# Reset the learn environment to a clean slate (idempotent).
-# netpol-learn: seeded with labelled pods and NO NetworkPolicies so grading
-# reflects the learner's work. A 'monitoring' namespace is created as a source.
-kubectl delete namespace netpol-learn --ignore-not-found --wait=false >/dev/null 2>&1
+# Prepare netpol-learn WITHOUT deleting the namespace (ns delete races under load).
+# Ensure the ns + a 'monitoring' source ns exist, remove this lab's policies, re-seed
+# labelled pods, and seed a MISCONFIGURED policy 'allow-api' for the step-8 diagnose-fix.
+NS=netpol-learn
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS" >/dev/null 2>&1
+# 'monitoring' is an ingress source namespace (kube auto-labels it with metadata.name)
+kubectl get ns monitoring >/dev/null 2>&1 || kubectl create namespace monitoring >/dev/null 2>&1
 
-# wait for namespace to be fully gone before recreating
-for i in $(seq 1 30); do kubectl get ns netpol-learn >/dev/null 2>&1 || break; sleep 1; done
+# resource-level cleanup: drop only the policies this lab builds (keep the namespace)
+kubectl -n "$NS" delete networkpolicy \
+  default-deny-ingress allow-from-client allow-from-monitoring allow-and \
+  default-deny-egress-allow-dns allow-egress-to-db allow-from-cidr allow-api \
+  --ignore-not-found >/dev/null 2>&1
 
-kubectl create namespace netpol-learn >/dev/null 2>&1
-# ensure a 'monitoring' namespace exists as an ingress source (kube auto-labels it)
-kubectl create namespace monitoring >/dev/null 2>&1 || true
+# re-seed a few labelled pods (busybox for non-root friendliness); harmless if present
+kubectl -n "$NS" run web    --image=busybox:1.36 --restart=Never --labels=app=web     --command -- sleep 3600 >/dev/null 2>&1 || true
+kubectl -n "$NS" run db     --image=busybox:1.36 --restart=Never --labels=app=db      --command -- sleep 3600 >/dev/null 2>&1 || true
+kubectl -n "$NS" run client --image=busybox:1.36 --restart=Never --labels=role=client --command -- sleep 3600 >/dev/null 2>&1 || true
 
-# seed a few labelled pods (busybox for non-root friendliness)
-kubectl -n netpol-learn run web    --image=busybox:1.36 --restart=Never --labels=app=web            --command -- sleep 3600 >/dev/null 2>&1 || true
-kubectl -n netpol-learn run db     --image=busybox:1.36 --restart=Never --labels=app=db             --command -- sleep 3600 >/dev/null 2>&1 || true
-kubectl -n netpol-learn run client --image=busybox:1.36 --restart=Never --labels=role=client        --command -- sleep 3600 >/dev/null 2>&1 || true
+# step 8 diagnose-fix: 'allow-api' is misconfigured two ways —
+#   wrong source label (role=clients, not role=client) AND wrong port (80, not 8080).
+kubectl -n "$NS" apply -f - >/dev/null 2>&1 <<'YAML'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api
+  namespace: netpol-learn
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          role: clients
+    ports:
+    - protocol: TCP
+      port: 80
+YAML
 
-# remove any pre-existing policies so the slate is clean
-kubectl -n netpol-learn delete networkpolicy --all >/dev/null 2>&1 || true
-
-echo "netpol-learn ready (pods: web[app=web], db[app=db], client[role=client]; namespace 'monitoring' present; no NetworkPolicies)"
+echo "netpol-learn ready (pods: web[app=web], db[app=db], client[role=client]; ns 'monitoring' present; broken policy 'allow-api' seeded for step 8; no learner policies present)"

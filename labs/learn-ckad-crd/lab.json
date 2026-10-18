@@ -1,89 +1,124 @@
 {
   "id": "learn-ckad-crd",
-  "name": "Learn: Custom Resources (CRDs)",
+  "name": "Learn: Custom Resources (CRDs) (hardened)",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Application Environment, Configuration and Security (25%). Goal: discover and use resources that extend Kubernetes — define a CustomResourceDefinition, create and inspect its custom resources, discover a CRD already installed on the cluster, and understand CRD-vs-CR lifecycle.",
-  "description": "Kubernetes is extensible: a CustomResourceDefinition (CRD) teaches the API server a brand-new kind, and you then create custom resources (CRs) of that kind just like built-in objects. Learn to author a CRD, create and inspect CRs, discover CRDs already on a cluster, and reason about their lifecycle.",
+  "objective": "CKAD › Application Environment, Configuration and Security. Drill EVERY CRD corner harder than the exam: author a typed CRD, create and inspect CRs, discover an installed CRD, list via plural/short name, enforce schema validation (required + enum), cluster-scoped CRDs, and a no-hint diagnose-and-fix on a CRD that won't serve. Graded exactly, per requirement.",
+  "description": "Seven strict CRD practicals. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
-      "title": "Define a CustomResourceDefinition",
-      "teach": "A **CustomResourceDefinition (CRD)** registers a brand-new *kind* with the API server. In `apiextensions.k8s.io/v1` you set `spec.group`, `spec.names` (`kind`/`plural`/`singular`), `spec.scope`, a `versions[]` entry (`served`/`storage`), and a `schema.openAPIV3Schema`. The schema types `spec.size` (integer) and `spec.color` (string).\n\n**Gotcha:** `metadata.name` **MUST** be exactly `<plural>.<group>` (here `widgets.stable.example.com`) — any other name is rejected.",
-      "prompt": "Create a CRD so the cluster understands a new namespaced kind `Widget` in group `stable.example.com` (plural `widgets`), version `v1`, served and storage, with a schema that allows `spec.size` (integer) and `spec.color` (string).\n\nTarget: `kubectl get crd widgets.stable.example.com` shows the CRD with its `Established` condition `True`.",
-      "hint": "Apply a `apiextensions.k8s.io/v1` CustomResourceDefinition. `metadata.name` must be `<plural>.<group>` = `widgets.stable.example.com`. Under `spec.versions[0].schema.openAPIV3Schema` give `type: object` with `properties.spec` an object having `size` (type integer) and `color` (type string).",
-      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: widgets.stable.example.com\nspec:\n  group: stable.example.com\n  scope: Namespaced\n  names:\n    kind: Widget\n    plural: widgets\n    singular: widget\n    shortNames: [wg]\n  versions:\n  - name: v1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              size:\n                type: integer\n              color:\n                type: string\nYAML\nkubectl get crd widgets.stable.example.com -o jsonpath='{.status.conditions[?(@.type==\"Established\")].status}'   # True",
+      "title": "Author a typed CustomResourceDefinition",
+      "teach": "A **CustomResourceDefinition** teaches the API server a new kind. In `apiextensions.k8s.io/v1` you set `spec.group`, `spec.names` (kind/plural/singular), `spec.scope`, and a `versions[]` entry with `served`/`storage` and an `openAPIV3Schema` typing the fields.\n\n**Gotcha:** `metadata.name` MUST be exactly `<plural>.<group>` (`widgets.stable.example.com`) — any other name is rejected.",
+      "prompt": "Create a CRD for a namespaced kind `Widget` in group `stable.example.com` (plural `widgets`, singular `widget`), version `v1` (served and storage), whose schema types `spec.size` (integer) and `spec.color` (string).\n\nTarget: `kubectl get crd widgets.stable.example.com` exists, scope Namespaced, and its `Established` condition is `True`.",
+      "hint": "Apply an `apiextensions.k8s.io/v1` CustomResourceDefinition. `metadata.name` = `<plural>.<group>` = `widgets.stable.example.com`. Under `spec.versions[0].schema.openAPIV3Schema` set `type: object` with `properties.spec` an object having `size` (integer) and `color` (string).",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: widgets.stable.example.com\nspec:\n  group: stable.example.com\n  scope: Namespaced\n  names:\n    kind: Widget\n    plural: widgets\n    singular: widget\n    shortNames: [wg]\n  versions:\n  - name: v1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              size: { type: integer }\n              color: { type: string }\nYAML\nkubectl get crd widgets.stable.example.com -o jsonpath='{.status.conditions[?(@.type==\"Established\")].status}'",
+      "setup": "setup/q0_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "CRD widgets.stable.example.com exists and is Established",
+          "description": "CRD widgets.stable.example.com: Namespaced, spec.size:integer + spec.color:string, Established",
           "script": "validate/q1_s1.sh",
-          "weightage": 20
+          "weightage": 15
         }
       ]
     },
     {
       "id": "2",
       "title": "Create a custom resource",
-      "teach": "Once a CRD is Established, you create its custom resources (CRs) like any native object: `kubectl apply -f`. The CR's `kind` is the CRD's `names.kind` (`Widget`) and its `spec` must match the published schema. Because this CRD is `Namespaced`, the CR lives in a namespace (`-n crd-learn`).\n\n**Gotcha:** the CR's `apiVersion` is `<group>/<version>` (`stable.example.com/v1`), **not** `apiextensions.k8s.io/v1` — that belongs to the CRD itself.",
-      "prompt": "In namespace `crd-learn`, create a custom resource of kind `Widget` named `gadget` with `spec.size: 3` and `spec.color: blue`.\n\nTarget: `kubectl -n crd-learn get widget gadget` exists with `.spec.size == 3` and `.spec.color == blue`.",
-      "hint": "`apiVersion: stable.example.com/v1`, `kind: Widget`, `metadata.name: gadget`, then a `spec` block with `size: 3` and `color: blue`. Apply it into `-n crd-learn`.",
-      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: stable.example.com/v1\nkind: Widget\nmetadata:\n  name: gadget\nspec:\n  size: 3\n  color: blue\nYAML\nkubectl -n crd-learn get widget gadget -o jsonpath='{.spec.size}/{.spec.color}'   # 3/blue",
+      "teach": "Once a CRD is Established you create its custom resources like any native object with `kubectl apply`. The CR's `kind` is the CRD's `names.kind` (`Widget`) and its `spec` must match the schema. A Namespaced CRD's CRs live in a namespace.\n\n**Gotcha:** the CR's `apiVersion` is `<group>/<version>` (`stable.example.com/v1`), NOT `apiextensions.k8s.io/v1` — that belongs to the CRD, not the CR.",
+      "prompt": "In namespace `crd-learn`, create a `Widget` named `gadget` with `spec.size: 3` and `spec.color: blue`.\n\nTarget: `kubectl -n crd-learn get widget gadget` exists with `.spec.size == 3` and `.spec.color == blue`.",
+      "hint": "`apiVersion: stable.example.com/v1`, `kind: Widget`, `metadata.name: gadget`, `spec.size: 3`, `spec.color: blue`. Apply into `-n crd-learn`.",
+      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: stable.example.com/v1\nkind: Widget\nmetadata:\n  name: gadget\nspec:\n  size: 3\n  color: blue\nYAML\nkubectl -n crd-learn get widget gadget -o jsonpath='{.spec.size}/{.spec.color}'",
       "verification": [
         {
           "id": "1",
-          "description": "Widget 'gadget' exists in crd-learn with size=3 color=blue",
+          "description": "Widget 'gadget' in crd-learn with size=3 color=blue",
           "script": "validate/q2_s1.sh",
-          "weightage": 20
+          "weightage": 14
         }
       ]
     },
     {
       "id": "3",
       "title": "Discover a CRD already on the cluster",
-      "teach": "On a real cluster, operators install their own CRDs that you must discover with no prior knowledge. Find them with `kubectl get crd | grep gizmo` or `kubectl api-resources --api-group=demo.example.com`, then read the schema via `kubectl get crd gizmos.demo.example.com -o yaml`. Create CRs against the discovered `group/version`.\n\n**Gotcha:** the CR's `apiVersion` is the CRD's group plus the version where `served: true` (`demo.example.com/v1`) — read it off the CRD, don't guess.",
-      "prompt": "The setup already installed a CRD for kind `Gizmo` in group `demo.example.com` (plural `gizmos`, namespaced, `spec.power` is an integer). Discover it, then create a `Gizmo` named `turbo` in `crd-learn` with `spec.power: 9`.\n\nTarget: `kubectl -n crd-learn get gizmo turbo` exists with `.spec.power == 9`.",
-      "hint": "Find it: `kubectl api-resources --api-group=demo.example.com` or `kubectl get crd | grep gizmo`. Inspect the schema: `kubectl get crd gizmos.demo.example.com -o yaml`. Then apply a `demo.example.com/v1` `Gizmo` with `spec.power: 9`.",
-      "solution": "kubectl api-resources --api-group=demo.example.com\nkubectl get crd gizmos.demo.example.com -o yaml | grep -A6 openAPIV3Schema\ncat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Gizmo\nmetadata:\n  name: turbo\nspec:\n  power: 9\nYAML\nkubectl -n crd-learn get gizmo turbo -o jsonpath='{.spec.power}'   # 9",
+      "teach": "On real clusters operators install their own CRDs you must discover blind: `kubectl api-resources --api-group=demo.example.com` lists the kinds, and `kubectl get crd gizmos.demo.example.com -o yaml` reveals the schema. Then create CRs against the discovered group/version.\n\n**Gotcha:** a CR's `apiVersion` is the group plus the version where `served: true` (`demo.example.com/v1`) — read it off the CRD, don't guess.",
+      "prompt": "Setup already installed a CRD for kind `Gizmo` in group `demo.example.com` (plural `gizmos`, namespaced, `spec.power` integer). Discover it, then create a `Gizmo` named `turbo` in `crd-learn` with `spec.power: 9`.\n\nTarget: `kubectl -n crd-learn get gizmo turbo` exists with `.spec.power == 9`.",
+      "hint": "Find it: `kubectl api-resources --api-group=demo.example.com`. Inspect: `kubectl get crd gizmos.demo.example.com -o yaml`. Then apply a `demo.example.com/v1` `Gizmo` with `spec.power: 9`.",
+      "solution": "kubectl api-resources --api-group=demo.example.com\ncat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Gizmo\nmetadata:\n  name: turbo\nspec:\n  power: 9\nYAML\nkubectl -n crd-learn get gizmo turbo -o jsonpath='{.spec.power}'",
       "setup": "setup/q3_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "Gizmo 'turbo' (seeded CRD) exists in crd-learn with power=9",
+          "description": "Gizmo 'turbo' (seeded CRD) in crd-learn with power=9",
           "script": "validate/q3_s1.sh",
-          "weightage": 20
+          "weightage": 14
         }
       ]
     },
     {
       "id": "4",
-      "title": "List custom resources by plural / short name",
-      "teach": "Because a CRD registers a real kind, you list its CRs with the same verbs as native objects: `kubectl -n crd-learn get widgets` (plural), `get widget` (singular), or `get wg` (short name) all return the same objects. Add another Widget and both show up.\n\n**Gotcha:** for a Namespaced CRD, forgetting `-n` lists only the current/`default` namespace, so the resources can look \"empty\" when they really exist elsewhere.",
-      "prompt": "Create a **second** Widget named `widget2` in `crd-learn` (`spec.size: 7`, `spec.color: red`), so that listing with `kubectl -n crd-learn get widgets` shows two Widgets.\n\nTarget: namespace `crd-learn` contains at least two Widgets, including `widget2`.",
-      "hint": "Same shape as step 2 but `metadata.name: widget2`, `size: 7`, `color: red`. Verify with `kubectl -n crd-learn get widgets` (or the short name `kubectl -n crd-learn get wg`).",
-      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: stable.example.com/v1\nkind: Widget\nmetadata:\n  name: widget2\nspec:\n  size: 7\n  color: red\nYAML\nkubectl -n crd-learn get widgets   # gadget and widget2\nkubectl -n crd-learn get wg        # same, via shortName",
+      "title": "List CRs by plural and short name",
+      "teach": "A CRD registers a real kind, so its CRs list with the same verbs as native objects: `kubectl -n crd-learn get widgets` (plural), `get widget` (singular), and `get wg` (short name) all return the same objects.\n\n**Gotcha:** for a Namespaced CRD, omitting `-n` lists only the current namespace — resources can look \"empty\" when they really exist elsewhere.",
+      "prompt": "Create a **second** Widget named `widget2` in `crd-learn` (`spec.size: 7`, `spec.color: red`), so `kubectl -n crd-learn get widgets` shows two Widgets.\n\nTarget: namespace `crd-learn` contains at least two Widgets, including `widget2` (size=7, color=red).",
+      "hint": "Same shape as step 2 but `metadata.name: widget2`, `size: 7`, `color: red`. Verify with `kubectl -n crd-learn get wg` (the short name).",
+      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: stable.example.com/v1\nkind: Widget\nmetadata:\n  name: widget2\nspec:\n  size: 7\n  color: red\nYAML\nkubectl -n crd-learn get wg",
       "verification": [
         {
           "id": "1",
-          "description": "crd-learn has >=2 Widgets including widget2",
+          "description": "crd-learn has >=2 Widgets including widget2 (size=7 color=red)",
           "script": "validate/q4_s1.sh",
-          "weightage": 20
+          "weightage": 14
         }
       ]
     },
     {
       "id": "5",
-      "title": "CR vs CRD lifecycle",
-      "teach": "A custom resource (CR) and the CRD that defines it have independent lifecycles. Deleting a single CR with `kubectl -n crd-learn delete widget scratch` removes only that object — the CRD and every sibling Widget stay intact.\n\n**Gotcha:** deleting the CRD itself (`kubectl delete crd widgets.stable.example.com`) is the heavy hammer — it garbage-collects every CR of that kind cluster-wide, across all namespaces. Delete one CR to clean up data; delete the CRD only to retire the whole kind.",
-      "prompt": "A CR's lifecycle is independent of its CRD and of its sibling CRs. Create a throwaway Widget `scratch` in `crd-learn` (any size/color), then delete **only** `scratch`.\n\nTarget: `scratch` is gone, while the CRD `widgets.stable.example.com`, `gadget`, and `widget2` all remain.",
-      "hint": "Apply a Widget named `scratch`, then `kubectl -n crd-learn delete widget scratch`. Deleting one CR leaves the CRD and the other CRs (`gadget`, `widget2`) untouched — only deleting the CRD itself cascade-deletes every Widget.",
-      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: stable.example.com/v1\nkind: Widget\nmetadata:\n  name: scratch\nspec:\n  size: 1\n  color: green\nYAML\nkubectl -n crd-learn delete widget scratch\nkubectl -n crd-learn get widgets                 # gadget and widget2 remain\nkubectl get crd widgets.stable.example.com       # CRD still present",
+      "title": "Schema validation: required field + enum",
+      "teach": "An `openAPIV3Schema` enforces data: `required: [model]` rejects CRs missing that field, and `enum: [eco, turbo]` rejects any other value. The API server validates on apply, so a bad CR fails fast with a clear error.\n\n**Gotcha:** the seeded `Robot` CRD requires `spec.model` and restricts `spec.mode` to `eco`/`turbo` — a CR missing `model` or using `mode: fast` is rejected; your CR must satisfy both.",
+      "prompt": "Setup installed a namespaced CRD `robots.demo.example.com` (kind `Robot`) whose schema **requires** `spec.model` (string) and restricts `spec.mode` to the enum `eco` or `turbo`. Create a valid `Robot` named `r2d2` in `crd-learn` with `spec.model: astromech` and `spec.mode: turbo`.\n\nTarget: `kubectl -n crd-learn get robot r2d2` exists with `.spec.model == astromech` and `.spec.mode == turbo`.",
+      "hint": "Inspect the schema with `kubectl get crd robots.demo.example.com -o yaml`. Apply a `demo.example.com/v1` `Robot` with `spec.model: astromech` and `spec.mode: turbo` (both required/valid-enum).",
+      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Robot\nmetadata:\n  name: r2d2\nspec:\n  model: astromech\n  mode: turbo\nYAML\nkubectl -n crd-learn get robot r2d2 -o jsonpath='{.spec.model}/{.spec.mode}'",
+      "setup": "setup/q5_setup.sh",
       "verification": [
         {
           "id": "1",
-          "description": "scratch deleted; CRD, gadget, and widget2 all survive",
+          "description": "Robot 'r2d2' in crd-learn with model=astromech, mode=turbo (passed required+enum validation)",
           "script": "validate/q5_s1.sh",
-          "weightage": 20
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Cluster-scoped CRD",
+      "teach": "`spec.scope` is either `Namespaced` or `Cluster`. A **Cluster**-scoped CRD's CRs live outside any namespace — you create and get them without `-n`, and `metadata.namespace` is ignored.\n\n**Gotcha:** scope is fixed at creation; you cannot flip a CRD from Namespaced to Cluster later. `kubectl get <plural> -A` won't help for cluster-scoped kinds — just `kubectl get <plural>`.",
+      "prompt": "Create a **Cluster**-scoped CRD for kind `Region` in group `stable.example.com` (plural `regions`, singular `region`, version `v1` served+storage, schema types `spec.zone` as string). Then create a cluster-scoped `Region` named `us-east` with `spec.zone: iad`.\n\nTarget: CRD `regions.stable.example.com` has scope `Cluster` and is Established; `kubectl get region us-east` exists with `.spec.zone == iad`.",
+      "hint": "In the CRD set `spec.scope: Cluster`. `metadata.name` = `regions.stable.example.com`. Create the `Region` CR with NO namespace: `kubectl get region us-east` (no `-n`).",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: regions.stable.example.com\nspec:\n  group: stable.example.com\n  scope: Cluster\n  names:\n    kind: Region\n    plural: regions\n    singular: region\n  versions:\n  - name: v1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              zone: { type: string }\nYAML\nkubectl wait --for=condition=Established crd/regions.stable.example.com --timeout=30s\ncat <<'YAML' | kubectl apply -f -\napiVersion: stable.example.com/v1\nkind: Region\nmetadata:\n  name: us-east\nspec:\n  zone: iad\nYAML\nkubectl get region us-east -o jsonpath='{.spec.zone}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "CRD regions.stable.example.com scope=Cluster Established; Region us-east with zone=iad",
+          "script": "validate/q6_s1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Diagnose & fix: a CRD that won't serve",
+      "teach": "A CRD can be installed and Established yet still refuse to create CRs when its only version has `served: false` — the REST endpoint isn't exposed, so `kubectl apply` fails with `the server could not find the requested resource`. Flip that version's `served` to `true`.\n\n**Gotcha:** `served` and `storage` are independent per-version flags; a version can be the storage version but still be unserved. Patch the CRD, don't recreate it.",
+      "prompt": "Setup installed a namespaced CRD `sprockets.demo.example.com` (kind `Sprocket`, `spec.teeth` integer), but creating a `Sprocket` fails. Diagnose why and fix the CRD so its `v1` is served, then create a `Sprocket` named `sp1` in `crd-learn` with `spec.teeth: 12`. Do not delete and recreate the CRD — patch it.\n\nTarget: CRD `sprockets.demo.example.com` version `v1` has `served: true`, and `kubectl -n crd-learn get sprocket sp1` exists with `.spec.teeth == 12`.",
+      "hint": "`kubectl get crd sprockets.demo.example.com -o yaml` → `versions[0].served: false`. Patch it: `kubectl patch crd sprockets.demo.example.com --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/versions/0/served\",\"value\":true}]'`. Then apply the `demo.example.com/v1` `Sprocket` with `spec.teeth: 12`.",
+      "solution": "# The only version has served:false, so no REST endpoint exists for Sprocket.\nkubectl patch crd sprockets.demo.example.com --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/versions/0/served\",\"value\":true}]'\nkubectl wait --for=condition=Established crd/sprockets.demo.example.com --timeout=30s\ncat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Sprocket\nmetadata:\n  name: sp1\nspec:\n  teeth: 12\nYAML\nkubectl -n crd-learn get sprocket sp1 -o jsonpath='{.spec.teeth}'",
+      "setup": "setup/q7_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sprockets CRD v1 served=true; Sprocket sp1 in crd-learn with teeth=12",
+          "script": "validate/q7_s1.sh",
+          "weightage": 15
         }
       ]
     }

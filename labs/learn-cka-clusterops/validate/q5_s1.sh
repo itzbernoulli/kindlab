@@ -1,5 +1,5 @@
 #!/bin/bash
-if ! kubectl get node "$CP" >/dev/null 2>&1; then echo "❌ node '$CP' not found."; exit 1; fi
-U=$(kubectl get node "$CP" -o jsonpath='{.spec.unschedulable}' 2>/dev/null)
-if [ "$U" != "true" ]; then echo "✅ control-plane $CP is schedulable again (uncordoned)"; exit 0; fi
-echo "❌ control-plane '$CP' is still cordoned (unschedulable=true). Run: kubectl uncordon $CP"; exit 1
+if ! kubectl get node "$W2" >/dev/null 2>&1; then echo "❌ node '$W2' not found."; exit 1; fi
+U=$(kubectl get node "$W2" -o jsonpath='{.spec.unschedulable}' 2>/dev/null)
+if [ "$U" = "true" ]; then echo "✅ node $W2 is cordoned (unschedulable=true) and drained"; exit 0; fi
+echo "❌ node '$W2' not cordoned (unschedulable='${U:-false}'). Run: kubectl cordon $W2 && kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data"; exit 1

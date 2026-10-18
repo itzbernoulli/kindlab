@@ -560,6 +560,16 @@ function cmdServe(port = 8080) {
       res.writeHead(404); res.end('not found');
     } catch (e) { sendJSON(res, { error: String(e) }, 500); }
   });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(paint(`\n  Port ${port} is already in use — the dashboard is probably already running.`, 'yellow'));
+      console.log(paint(`  Open it:        http://localhost:${port}`, 'dim'));
+      console.log(paint(`  Or free it:     lsof -ti tcp:${port} | xargs kill`, 'dim'));
+      console.log(paint(`  Or use a port:  kindlab serve ${Number(port) + 1}\n`, 'dim'));
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(port, () => {
     console.log(paint(`\n  KindLab dashboard → http://localhost:${port}\n`, 'green'));
     console.log(paint(`  (Ctrl+C to stop)\n`, 'dim'));

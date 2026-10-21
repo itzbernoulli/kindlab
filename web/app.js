@@ -5,6 +5,19 @@ const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;
 let current = null;
 let clusterInfo = {};
 
+// Click-to-copy: like the exam, clicking any inline `code` token (a name,
+// namespace, value) copies it to the clipboard for pasting in the terminal.
+document.addEventListener('click', (e) => {
+  const c = e.target.closest('code');
+  if (!c || c.closest('pre')) return;            // inline code only, not code blocks
+  const text = c.textContent;
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(text).then(() => {
+    c.classList.add('copied');
+    setTimeout(() => c.classList.remove('copied'), 900);
+  }).catch(() => {});
+});
+
 // Banner shown on every lab: KindLab has no built-in shell — you work in your own terminal.
 function workbench() {
   const kc = clusterInfo.kubeconfig || 'kindlab/.state/kubeconfig';

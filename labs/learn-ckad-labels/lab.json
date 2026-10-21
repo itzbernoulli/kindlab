@@ -1,0 +1,74 @@
+{
+  "id": "learn-ckad-labels",
+  "name": "Learn: Labels, Selectors & Annotations",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD core: label and annotate objects, and target them with equality + set-based selectors. Add/overwrite/remove labels, bulk-label via a selector, set-based matching, matchExpressions selectors, annotations, and a selector-mismatch diagnose-fix. Graded exactly.",
+  "description": "Seven strict practicals on labels/selectors/annotations against pre-seeded pods. Each Check shows which requirements you met and why any failed.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Add a label",
+      "teach": "`kubectl label <kind>/<name> key=value` attaches a label (key/value metadata used for selecting and grouping objects).\n\n**Gotcha:** labelling an existing key without `--overwrite` fails — add fails loudly rather than clobbering.",
+      "prompt": "In `labels-learn`, add the label `env=prod` to pod `frontend`.\n\nTarget: pod `frontend` has label `env=prod`.",
+      "hint": "`kubectl -n labels-learn label pod frontend env=prod`.",
+      "solution": "kubectl -n labels-learn label pod frontend env=prod\nkubectl -n labels-learn get pod frontend --show-labels",
+      "setup": "setup/q0_setup.sh",
+      "verification": [ { "id": "1", "description": "pod frontend has env=prod", "script": "validate/c1.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "2",
+      "title": "Overwrite and remove a label",
+      "teach": "Change an existing label with `kubectl label --overwrite key=newvalue`; remove one with `kubectl label <obj> key-` (trailing dash).\n\n**Gotcha:** without `--overwrite`, relabelling an existing key errors; `key-` (not `key=`) is how you delete a label.",
+      "prompt": "Pod `legacy` in `labels-learn` has labels `env=dev` and `deprecated=true`. **Overwrite** `env` to `prod`, and **remove** the `deprecated` label.\n\nTarget: pod `legacy` has `env=prod` and no `deprecated` label.",
+      "hint": "`kubectl -n labels-learn label --overwrite pod legacy env=prod` and `kubectl -n labels-learn label pod legacy deprecated-`.",
+      "solution": "kubectl -n labels-learn label --overwrite pod legacy env=prod\nkubectl -n labels-learn label pod legacy deprecated-\nkubectl -n labels-learn get pod legacy --show-labels",
+      "verification": [ { "id": "1", "description": "legacy: env=prod and deprecated removed", "script": "validate/c2.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "3",
+      "title": "Bulk-label via a selector",
+      "teach": "Label many objects at once by targeting them with `-l <selector>`: `kubectl label pods -l app=shop tier=web` labels every pod matching `app=shop`.\n\n**Gotcha:** `-l` on `kubectl label` selects *which* objects to label — it doesn't set that label.",
+      "prompt": "In `labels-learn`, add the label `tier=web` to **all** pods that match `app=shop` (there are two), in one command.\n\nTarget: every `app=shop` pod has `tier=web`.",
+      "hint": "`kubectl -n labels-learn label pods -l app=shop tier=web`.",
+      "solution": "kubectl -n labels-learn label pods -l app=shop tier=web\nkubectl -n labels-learn get pods -l app=shop --show-labels",
+      "verification": [ { "id": "1", "description": "all app=shop pods now have tier=web", "script": "validate/c3.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "4",
+      "title": "Set-based selector targeting",
+      "teach": "Set-based selectors match against a set of values: `-l 'release in (beta,rc)'`, `notin (...)`, or `key`/`!key` (exists / not-exists). Use them to target a subset.\n\n**Gotcha:** quote the selector in the shell; equality (`=`,`!=`) and set-based (`in`,`notin`) can be combined with commas.",
+      "prompt": "In `labels-learn`, add `canary=yes` to every pod whose `release` is **in (beta, rc)** — using a set-based selector. The `release=stable` pod must NOT get it.\n\nTarget: `rel-beta` and `rel-rc` have `canary=yes`; `rel-stable` does not.",
+      "hint": "`kubectl -n labels-learn label pods -l 'release in (beta,rc)' canary=yes`.",
+      "solution": "kubectl -n labels-learn label pods -l 'release in (beta,rc)' canary=yes\nkubectl -n labels-learn get pods -L release -L canary",
+      "verification": [ { "id": "1", "description": "canary=yes on beta+rc only (not stable)", "script": "validate/c4.sh", "weightage": 15 } ]
+    },
+    {
+      "id": "5",
+      "title": "A selector with matchExpressions",
+      "teach": "A controller/Service selector can use `matchExpressions` for set-based rules: `{key: app, operator: In, values: [exp]}` (operators `In`/`NotIn`/`Exists`/`DoesNotExist`), optionally alongside `matchLabels`.\n\n**Gotcha:** the pod template's labels must satisfy the selector, or the Deployment is rejected.",
+      "prompt": "In `labels-learn`, create a Deployment `exp` (image `nginx:1.25`, 1 replica, pod label `app=exp`) whose **selector uses matchExpressions**: key `app`, operator `In`, values `[exp]`.\n\nTarget: Deployment `exp` selector has a matchExpressions rule `app In [exp]`, and its pods are labelled `app=exp`.",
+      "hint": "`spec.selector.matchExpressions: [{key: app, operator: In, values: [exp]}]`; pod template `labels: {app: exp}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: exp, namespace: labels-learn }\nspec:\n  replicas: 1\n  selector:\n    matchExpressions: [ { key: app, operator: In, values: [ exp ] } ]\n  template:\n    metadata: { labels: { app: exp } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "verification": [ { "id": "1", "description": "Deployment exp selector matchExpressions app In [exp]", "script": "validate/c5.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "6",
+      "title": "Annotate an object",
+      "teach": "`kubectl annotate <obj> key=value` attaches non-identifying metadata. Unlike labels, **annotations can't be used in selectors** — they're for tools, descriptions, and controller hints.\n\n**Gotcha:** labels are selectable + size-limited; annotations are not selectable but hold larger/arbitrary data.",
+      "prompt": "In `labels-learn`, add the annotation `owner=team-a` to pod `frontend`.\n\nTarget: pod `frontend` has annotation `owner=team-a`.",
+      "hint": "`kubectl -n labels-learn annotate pod frontend owner=team-a`.",
+      "solution": "kubectl -n labels-learn annotate pod frontend owner=team-a\nkubectl -n labels-learn get pod frontend -o jsonpath='{.metadata.annotations.owner}'",
+      "verification": [ { "id": "1", "description": "pod frontend has annotation owner=team-a", "script": "validate/c6.sh", "weightage": 14 } ]
+    },
+    {
+      "id": "7",
+      "title": "Diagnose & fix: a selector that matches nothing",
+      "teach": "A Service with **no endpoints** despite healthy pods means its selector doesn't match any pod labels. Compare `kubectl get svc <s> -o jsonpath='{.spec.selector}'` to `kubectl get pods --show-labels` and loosen/fix the selector.\n\n**Gotcha:** removing a selector key via patch needs `key: null` (a plain merge keeps it).",
+      "prompt": "Service `shop-svc` in `labels-learn` selects `app=shop,tier=cache` — but no pod has `tier=cache`, so it has zero endpoints. Fix the selector so it fronts the `app=shop` pods. Don't delete it.\n\nTarget: `shop-svc` has at least one endpoint.",
+      "hint": "`kubectl -n labels-learn get svc shop-svc -o jsonpath='{.spec.selector}'` shows `tier: cache`. Remove it: `kubectl -n labels-learn patch svc shop-svc -p '{\"spec\":{\"selector\":{\"app\":\"shop\",\"tier\":null}}}'`.",
+      "solution": "kubectl -n labels-learn patch svc shop-svc -p '{\"spec\":{\"selector\":{\"app\":\"shop\",\"tier\":null}}}'\nkubectl -n labels-learn get endpoints shop-svc -o wide",
+      "verification": [ { "id": "1", "description": "shop-svc now has endpoints (selector fixed)", "script": "validate/c7.sh", "weightage": 15 } ]
+    }
+  ]
+}

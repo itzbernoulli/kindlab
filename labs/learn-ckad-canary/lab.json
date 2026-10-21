@@ -1,0 +1,91 @@
+{
+  "id": "learn-ckad-canary",
+  "name": "Learn: Canary Deployments",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD › Application Deployment. Run a new version alongside the stable one behind ONE Service and split traffic by replica ratio (label-based canary), then diagnose a canary that gets no traffic. Graded exactly.",
+  "description": "Build a label-based canary: stable + canary Deployments sharing an app label, one Service fronting both, verify the split, and fix a canary that's excluded by a too-specific selector.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Deploy the stable version",
+      "teach": "A **canary** release runs the new version beside the stable one and gives it a slice of traffic. Both Deployments share a label (`app=web`) that one Service selects, so traffic splits by **replica ratio**. Start with stable.\n\n**Gotcha:** each Deployment's own `selector` must include a distinguishing label (`track`) so it manages only *its* pods, not the other's.",
+      "prompt": "In `canary-learn`, create Deployment `web-stable`: image `nginx:1.25`, **3** replicas, pod labels `app=web` AND `track=stable`, with its selector matching **both** labels.\n\nTarget: `web-stable` — nginx:1.25, 3 replicas, pod labels + selector `app=web`/`track=stable`.",
+      "hint": "Selector `matchLabels: {app: web, track: stable}`; pod template labels the same. 3 replicas.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web-stable, namespace: canary-learn }\nspec:\n  replicas: 3\n  selector: { matchLabels: { app: web, track: stable } }\n  template:\n    metadata: { labels: { app: web, track: stable } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-stable: nginx:1.25, 3 replicas, labels+selector app=web/track=stable",
+          "script": "validate/c1.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Deploy the canary version",
+      "teach": "Add the canary Deployment: new image, the **same** `app=web` label (so the Service picks it up) plus `track=canary`. With 3 stable : 1 canary replicas, the canary gets ~25% of traffic.\n\n**Gotcha:** the shared `app=web` label is what puts canary pods behind the Service; `track` keeps the two Deployments separate.",
+      "prompt": "In `canary-learn`, create Deployment `web-canary`: image `nginx:1.26`, **1** replica, pod labels `app=web` AND `track=canary`, selector matching both.\n\nTarget: `web-canary` — nginx:1.26, 1 replica, pod labels + selector `app=web`/`track=canary`.",
+      "hint": "Same shape as web-stable but `track: canary`, image `nginx:1.26`, 1 replica.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web-canary, namespace: canary-learn }\nspec:\n  replicas: 1\n  selector: { matchLabels: { app: web, track: canary } }\n  template:\n    metadata: { labels: { app: web, track: canary } }\n    spec:\n      containers: [ { name: web, image: nginx:1.26 } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-canary: nginx:1.26, 1 replica, labels+selector app=web/track=canary",
+          "script": "validate/c2.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "One Service fronting both",
+      "teach": "One **Service** fronts both Deployments by selecting only the **shared** label (`app=web`) — NOT `track`. It load-balances across every matching ready pod, so the replica ratio becomes the traffic ratio.\n\n**Gotcha:** if the Service selector includes `track`, it fronts only one version and the other gets no traffic.",
+      "prompt": "Create a ClusterIP Service `web` in `canary-learn` (port 80 → targetPort 80) selecting **only** `app=web` (no `track`), so it fronts both stable and canary.\n\nTarget: Service `web` ClusterIP, port 80→80, selector is exactly `app=web`.",
+      "hint": "`spec.selector: {app: web}` — just the shared label, no track.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web, namespace: canary-learn }\nspec:\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Service web: ClusterIP 80->80, selector exactly app=web",
+          "script": "validate/c3.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Verify the traffic split",
+      "teach": "The split is just the **endpoint ratio**: 3 stable + 1 canary ready pods = 4 endpoints, ~25% to the canary. Scale either Deployment to shift the split; scale canary up (and stable down) to **promote**, or delete the canary to roll back.\n\n**Gotcha:** only **ready** pods become endpoints — a failing canary silently gets 0% traffic.",
+      "prompt": "Confirm the canary is live: the `web` Service's endpoints must include pods from **both** Deployments — at least 3 from `web-stable` and at least 1 from `web-canary`.\n\nTarget: `web`'s endpoints include ≥3 web-stable pods AND ≥1 web-canary pod.",
+      "hint": "`kubectl -n canary-learn get endpoints web -o wide` — you should see 4 addresses. Make sure both Deployments' pods are Ready.",
+      "solution": "kubectl -n canary-learn get endpoints web -o wide\nkubectl -n canary-learn get pods -l app=web -L track",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web endpoints span both tracks (>=3 stable, >=1 canary)",
+          "script": "validate/c4.sh",
+          "weightage": 20
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Diagnose & fix: canary gets no traffic",
+      "teach": "A canary getting **no** traffic usually means the Service selector is **too specific** — it includes `track=stable`, so canary pods aren't selected. Loosen it to the shared label only.\n\n**Gotcha:** patching `selector:{app:pay}` *merges* — `track` stays; you must set `track: null` (or `kubectl edit`) to actually remove the key.",
+      "prompt": "Service `pay` in `canary-learn` fronts only its stable pods — `pay-canary` gets no traffic. Diagnose why and fix it so **both** are served. Don't delete it.\n\nTarget: `pay`'s endpoints include `pay-canary` pods.",
+      "hint": "`kubectl -n canary-learn get svc pay -o jsonpath='{.spec.selector}'` → it has `track: stable`. Remove that: `kubectl -n canary-learn patch svc pay -p '{\"spec\":{\"selector\":{\"app\":\"pay\",\"track\":null}}}'` (or edit to `selector: {app: pay}`).",
+      "solution": "# patching selector:{app:pay} MERGES — track:stable would remain; set track:null to remove it\nkubectl -n canary-learn patch svc pay -p '{\"spec\":{\"selector\":{\"app\":\"pay\",\"track\":null}}}'\nkubectl -n canary-learn get endpoints pay -o wide",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pay endpoints now include pay-canary pods (selector loosened)",
+          "script": "validate/c5.sh",
+          "weightage": 20
+        }
+      ]
+    }
+  ]
+}

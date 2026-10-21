@@ -177,11 +177,11 @@ button.mini { padding: 6px 13px; font-size: 13px; }
 .task-body code, .lesson code, .task-prompt code { background: #eef1f6; color: #2a3346; padding: 1.5px 6px; border-radius: 5px; font-size: 85%; }
 .task-body pre, .solution pre { background: #0f1420; color: #e6e9ef; padding: 13px 15px; border-radius: 9px; overflow-x: auto; }
 .task-body pre code, .solution pre code { background: none; color: inherit; padding: 0; }
-/* click-to-copy inline code tokens (names/namespaces/values) */
-:not(pre) > code { cursor: pointer; transition: background .12s, box-shadow .12s; }
-:not(pre) > code:hover { box-shadow: 0 0 0 1px rgba(108,151,239,.55); filter: brightness(.97); }
-:not(pre) > code.copied { position: relative; box-shadow: 0 0 0 1px var(--ok); }
-:not(pre) > code.copied::after { content: "✓ copied"; position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); background: var(--ok); color: #fff; font-family: -apple-system, system-ui, sans-serif; font-size: 10px; font-weight: 600; letter-spacing: .02em; padding: 2px 7px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 5; }
+/* click-to-copy inline code tokens — only in the "Your turn" task box */
+.task-prompt code { cursor: pointer; transition: background .12s, box-shadow .12s; }
+.task-prompt code:hover { box-shadow: 0 0 0 1px rgba(108,151,239,.55); filter: brightness(.97); }
+.task-prompt code.copied { position: relative; box-shadow: 0 0 0 1px var(--ok); }
+.task-prompt code.copied::after { content: "✓ copied"; position: absolute; left: 50%; bottom: calc(100% + 5px); transform: translateX(-50%); background: var(--ok); color: #fff; font-family: -apple-system, system-ui, sans-serif; font-size: 10px; font-weight: 600; letter-spacing: .02em; padding: 2px 7px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 5; }
 
 /* learn step internals */
 .step-dot { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; color: #b4bac5; font-weight: 700; }

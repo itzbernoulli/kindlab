@@ -5,10 +5,11 @@ const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;
 let current = null;
 let clusterInfo = {};
 
-// Click-to-copy: like the exam, clicking any inline `code` token (a name,
-// namespace, value) copies it to the clipboard for pasting in the terminal.
+// Click-to-copy: like the exam, clicking an inline `code` token (name,
+// namespace, value) in the "Your turn" task box copies it for the terminal.
+// Scoped to .task-prompt only — lessons, hints, and solutions don't copy.
 document.addEventListener('click', (e) => {
-  const c = e.target.closest('code');
+  const c = e.target.closest('.task-prompt code');
   if (!c || c.closest('pre')) return;            // inline code only, not code blocks
   const text = c.textContent;
   if (!navigator.clipboard) return;

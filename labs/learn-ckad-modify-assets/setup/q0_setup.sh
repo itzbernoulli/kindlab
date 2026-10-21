@@ -74,4 +74,8 @@ spec:
           valueFrom: { configMapKeyRef: { name: web-config, key: COLOR } }
 YAML
 
+# Step 5: an IMPERATIVELY-created Deployment (no last-applied annotation) — container named "nginx"
+kubectl -n "$NS" delete deployment renamer --ignore-not-found >/dev/null 2>&1
+kubectl -n "$NS" create deployment renamer --image=nginx:1.25 >/dev/null 2>&1
+
 echo "seeded modify-learn: Deployment legacy, Pod tool, Deployment widget (<- $AST/widget-deploy.yaml), Deployment web + cm web-config(COLOR=blue)"

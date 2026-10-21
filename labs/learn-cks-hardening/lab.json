@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-hardening",
-  "name": "Learn: Cluster Hardening (hardened)",
+  "name": "Learn: Cluster Hardening",
   "category": "CKS",
   "type": "learn",
   "objective": "CKS › Cluster + System Hardening (15% + 15%). Drill EVERY hardening corner harder than the exam on a real multi-node kind cluster: control-plane manifest perms, kubelet read-only port + anonymous-auth + authz mode, two apiserver admission/flag hardenings, least-privilege RBAC, ServiceAccount token hardening, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",

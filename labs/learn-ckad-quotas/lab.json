@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-quotas",
-  "name": "Learn: Resource Quotas & Limit Ranges (hardened)",
+  "name": "Learn: Resource Quotas & Limit Ranges",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Application Environment, Configuration and Security. Drill EVERY corner of namespace resource governance harder than the exam: compute ResourceQuota, object-count quota, scoped quota (BestEffort), LimitRange defaults, LimitRange min/max bounds, ratio limits, and a no-hint diagnose-and-fix of a pod rejected by a quota. Graded exactly, per requirement.",

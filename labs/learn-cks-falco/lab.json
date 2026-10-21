@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-falco",
-  "name": "Learn: Runtime Security with Falco (hardened)",
+  "name": "Learn: Runtime Security with Falco",
   "category": "CKS",
   "type": "learn",
   "requiresHost": true,
@@ -16,8 +16,18 @@
       "solution": "helm repo add falcosecurity https://falcosecurity.github.io/charts\nhelm repo update\nhelm install falco falcosecurity/falco --namespace falco --create-namespace \\\n  --set driver.kind=modern-ebpf\nkubectl -n falco rollout status ds/falco\nkubectl -n falco get ds,pods",
       "setup": "setup/q1_setup.sh",
       "verification": [
-        { "id": "1", "description": "a Falco DaemonSet exists in namespace 'falco' running the Falco image", "script": "validate/q1_s1.sh", "weightage": 8 },
-        { "id": "2", "description": "the install uses the modern-eBPF driver (driver.kind modern_ebpf)", "script": "validate/q1_s2.sh", "weightage": 6 }
+        {
+          "id": "1",
+          "description": "a Falco DaemonSet exists in namespace 'falco' running the Falco image",
+          "script": "validate/q1_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "the install uses the modern-eBPF driver (driver.kind modern_ebpf)",
+          "script": "validate/q1_s2.sh",
+          "weightage": 6
+        }
       ]
     },
     {
@@ -28,7 +38,12 @@
       "hint": "`kubectl -n falco get ds falco` — `DESIRED` should equal `kubectl get nodes --no-headers | wc -l`. `kubectl -n falco get pods -o wide` shows the per-node pods (Ready only on a BTF host).",
       "solution": "kubectl get nodes --no-headers | wc -l   # node count\nkubectl -n falco get ds falco             # DESIRED must equal node count\nkubectl -n falco get pods -o wide         # one falco-* pod per node",
       "verification": [
-        { "id": "1", "description": "Falco DaemonSet scheduled on every node (desiredNumberScheduled == node count)", "script": "validate/q2_s1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "Falco DaemonSet scheduled on every node (desiredNumberScheduled == node count)",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -39,7 +54,12 @@
       "hint": "Edit the ConfigMap key `falco_rules.local.yaml`:\n```\n- rule: Terminal shell in container\n  desc: A shell was spawned in a container\n  condition: spawned_process and container and shell_procs\n  output: \"shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\n  priority: WARNING\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Edit the 'falco' ConfigMap, under data.falco_rules.local.yaml, append:\ncat <<'EOF'\n- rule: Terminal shell in container\n  desc: A shell was spawned in a container\n  condition: spawned_process and container and shell_procs\n  output: \"shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\n  priority: WARNING\nEOF\nkubectl -n falco rollout restart ds/falco",
       "verification": [
-        { "id": "1", "description": "rule 'Terminal shell in container' present with condition macros + priority WARNING", "script": "validate/q3_s1.sh", "weightage": 16 }
+        {
+          "id": "1",
+          "description": "rule 'Terminal shell in container' present with condition macros + priority WARNING",
+          "script": "validate/q3_s1.sh",
+          "weightage": 16
+        }
       ]
     },
     {
@@ -50,7 +70,12 @@
       "hint": "Set the rule's `output:` to e.g. `\"Shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"`. Keep the `%` prefix and exact field names.",
       "solution": "# In the same rule, ensure output references all three fields:\n#   output: \"Shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\nkubectl -n falco rollout restart ds/falco",
       "verification": [
-        { "id": "1", "description": "output references %user.name, %container.id and %proc.cmdline", "script": "validate/q4_s1.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "output references %user.name, %container.id and %proc.cmdline",
+          "script": "validate/q4_s1.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -61,7 +86,12 @@
       "hint": "```\n- list: sensitive_dirs\n  items: [/etc, /root]\n- macro: write_sensitive_dir\n  condition: (evt.type in (open,openat) and fd.name pmatch (sensitive_dirs))\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "cat <<'EOF'\n- list: sensitive_dirs\n  items: [/etc, /root]\n- macro: write_sensitive_dir\n  condition: (evt.type in (open,openat) and fd.name pmatch (sensitive_dirs))\nEOF\nkubectl -n falco rollout restart ds/falco",
       "verification": [
-        { "id": "1", "description": "list 'sensitive_dirs' (/etc,/root) + macro 'write_sensitive_dir' referencing it", "script": "validate/q5_s1.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "list 'sensitive_dirs' (/etc,/root) + macro 'write_sensitive_dir' referencing it",
+          "script": "validate/q5_s1.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -72,7 +102,12 @@
       "hint": "Under the rule add:\n```\n  exceptions:\n  - name: known_good\n    fields: [proc.name]\n    comps: [in]\n    values:\n    - [my-healthcheck]\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Append to the 'Terminal shell in container' rule:\ncat <<'EOF'\n  exceptions:\n  - name: known_good\n    fields: [proc.name]\n    comps: [in]\n    values:\n    - [my-healthcheck]\nEOF\nkubectl -n falco rollout restart ds/falco",
       "verification": [
-        { "id": "1", "description": "exception 'known_good' (or tuning macro) referencing 'my-healthcheck'", "script": "validate/q6_s1.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "exception 'known_good' (or tuning macro) referencing 'my-healthcheck'",
+          "script": "validate/q6_s1.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -83,7 +118,12 @@
       "hint": "If you added `enabled: false` or commented the rule out, re-enable it (a `- rule:` is enabled unless you set `enabled: false`). Then `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Ensure the rule is NOT disabled or commented out:\n#   - rule: Terminal shell in container     (active, no 'enabled: false')\nkubectl -n falco rollout restart ds/falco",
       "verification": [
-        { "id": "1", "description": "rule 'Terminal shell in container' is an active, enabled rule", "script": "validate/q7_s1.sh", "weightage": 8 }
+        {
+          "id": "1",
+          "description": "rule 'Terminal shell in container' is an active, enabled rule",
+          "script": "validate/q7_s1.sh",
+          "weightage": 8
+        }
       ]
     },
     {
@@ -95,7 +135,12 @@
       "solution": "# Read it:\nkubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'\n# Fix: 'spawned_proces' -> 'spawned_process', drop 'enabled: false'. e.g. edit:\nkubectl -n falco edit configmap falco-custom-rules\n# resulting rule condition: spawned_process and container, no 'enabled: false'",
       "setup": "setup/q8_setup.sh",
       "verification": [
-        { "id": "1", "description": "broken rule fixed: condition uses spawned_process (no typo) and rule enabled", "script": "validate/q8_s1.sh", "weightage": 8 }
+        {
+          "id": "1",
+          "description": "broken rule fixed: condition uses spawned_process (no typo) and rule enabled",
+          "script": "validate/q8_s1.sh",
+          "weightage": 8
+        }
       ]
     }
   ]

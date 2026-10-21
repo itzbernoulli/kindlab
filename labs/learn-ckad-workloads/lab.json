@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-workloads",
-  "name": "Learn: Workloads — Jobs & CronJobs (hardened)",
+  "name": "Learn: Workloads — Jobs & CronJobs",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Workloads & Scheduling. Drill the controller + batch surface: a Deployment's strategy/history, Jobs (completions/parallelism/backoffLimit/activeDeadline/ttl/Indexed), CronJobs (schedule/concurrencyPolicy/startingDeadline/history/suspend), and a no-hint parallelism diagnose-fix. Graded exactly.",
@@ -14,7 +14,14 @@
       "hint": "Scaffold with `kubectl create deployment web --image=nginx:1.25 --replicas=3 --dry-run=client -o yaml`, then add `strategy.type: Recreate` and `revisionHistoryLimit: 5`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web, namespace: workloads-learn, labels: { app: web } }\nspec:\n  replicas: 3\n  revisionHistoryLimit: 5\n  strategy: { type: Recreate }\n  selector: { matchLabels: { app: web } }\n  template:\n    metadata: { labels: { app: web } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
       "setup": "setup/q0_setup.sh",
-      "verification": [ { "id": "1", "description": "web: 3 replicas, strategy Recreate, revisionHistoryLimit 5", "script": "validate/c1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "web: 3 replicas, strategy Recreate, revisionHistoryLimit 5",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "2",
@@ -23,7 +30,14 @@
       "prompt": "In `workloads-learn`, create a Job `pi` that reaches **6** successful completions running **2** at a time, image `busybox:1.36`, command `sh -c 'exit 0'`, `restartPolicy: Never`.\n\nTarget: Job `pi` has completions 6, parallelism 2, restartPolicy Never.",
       "hint": "`spec.completions: 6`, `spec.parallelism: 2`, and `spec.template.spec.restartPolicy: Never`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: pi, namespace: workloads-learn }\nspec:\n  completions: 6\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: pi, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "Job pi: completions 6, parallelism 2, restartPolicy Never", "script": "validate/c2.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job pi: completions 6, parallelism 2, restartPolicy Never",
+          "script": "validate/c2.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "3",
@@ -32,7 +46,14 @@
       "prompt": "In `workloads-learn`, create a Job `retry` (image `busybox:1.36`, command `sh -c 'exit 0'`) with `backoffLimit: 4` and `restartPolicy: OnFailure`.\n\nTarget: Job `retry` has backoffLimit 4 and pod restartPolicy OnFailure.",
       "hint": "`spec.backoffLimit: 4` and `spec.template.spec.restartPolicy: OnFailure`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: retry, namespace: workloads-learn }\nspec:\n  backoffLimit: 4\n  template:\n    spec:\n      restartPolicy: OnFailure\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "Job retry: backoffLimit 4, restartPolicy OnFailure", "script": "validate/c3.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job retry: backoffLimit 4, restartPolicy OnFailure",
+          "script": "validate/c3.sh",
+          "weightage": 13
+        }
+      ]
     },
     {
       "id": "4",
@@ -41,7 +62,14 @@
       "prompt": "In `workloads-learn`, create a Job `bounded` (image `busybox:1.36`, command `sh -c 'sleep 3600'`, `restartPolicy: Never`) with `activeDeadlineSeconds: 300` and `ttlSecondsAfterFinished: 30`.\n\nTarget: Job `bounded` has activeDeadlineSeconds 300 and ttlSecondsAfterFinished 30.",
       "hint": "`spec.activeDeadlineSeconds: 300` and `spec.ttlSecondsAfterFinished: 30`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: bounded, namespace: workloads-learn }\nspec:\n  activeDeadlineSeconds: 300\n  ttlSecondsAfterFinished: 30\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"sleep 3600\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "Job bounded: activeDeadlineSeconds 300, ttlSecondsAfterFinished 30", "script": "validate/c4.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job bounded: activeDeadlineSeconds 300, ttlSecondsAfterFinished 30",
+          "script": "validate/c4.sh",
+          "weightage": 13
+        }
+      ]
     },
     {
       "id": "5",
@@ -50,7 +78,14 @@
       "prompt": "In `workloads-learn`, create an **Indexed** Job `indexed` (`completionMode: Indexed`) with `completions: 4`, `parallelism: 2`, image `busybox:1.36`, command `sh -c 'exit 0'`, `restartPolicy: Never`.\n\nTarget: Job `indexed` has completionMode Indexed, completions 4, parallelism 2.",
       "hint": "`spec.completionMode: Indexed` alongside `completions: 4` and `parallelism: 2`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: indexed, namespace: workloads-learn }\nspec:\n  completionMode: Indexed\n  completions: 4\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "Job indexed: completionMode Indexed, completions 4, parallelism 2", "script": "validate/c5.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job indexed: completionMode Indexed, completions 4, parallelism 2",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "6",
@@ -59,7 +94,14 @@
       "prompt": "In `workloads-learn`, create a CronJob `report` with schedule `*/5 * * * *`, `concurrencyPolicy: Forbid`, whose Job runs image `busybox:1.36`, command `sh -c 'date'`, `restartPolicy: Never`.\n\nTarget: CronJob `report` has schedule `*/5 * * * *` and concurrencyPolicy Forbid.",
       "hint": "`spec.schedule`, `spec.concurrencyPolicy: Forbid`, and the pod under `spec.jobTemplate.spec.template.spec`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: CronJob\nmetadata: { name: report, namespace: workloads-learn }\nspec:\n  schedule: \"*/5 * * * *\"\n  concurrencyPolicy: Forbid\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"date\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "CronJob report: schedule */5, concurrencyPolicy Forbid", "script": "validate/c6.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "CronJob report: schedule */5, concurrencyPolicy Forbid",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "7",
@@ -68,7 +110,14 @@
       "prompt": "In `workloads-learn`, create a **suspended** CronJob `nightly` (schedule `0 2 * * *`, image `busybox:1.36`, command `sh -c 'date'`, restartPolicy Never) with `suspend: true`, `startingDeadlineSeconds: 60`, `successfulJobsHistoryLimit: 2`, `failedJobsHistoryLimit: 1`.\n\nTarget: CronJob `nightly` has suspend true, startingDeadlineSeconds 60, and those history limits.",
       "hint": "Set `suspend: true`, `startingDeadlineSeconds: 60`, `successfulJobsHistoryLimit: 2`, `failedJobsHistoryLimit: 1` under the CronJob spec.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: CronJob\nmetadata: { name: nightly, namespace: workloads-learn }\nspec:\n  schedule: \"0 2 * * *\"\n  suspend: true\n  startingDeadlineSeconds: 60\n  successfulJobsHistoryLimit: 2\n  failedJobsHistoryLimit: 1\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"date\"] } ]\nYAML",
-      "verification": [ { "id": "1", "description": "CronJob nightly: suspend true, startingDeadline 60, history 2/1", "script": "validate/c7.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "CronJob nightly: suspend true, startingDeadline 60, history 2/1",
+          "script": "validate/c7.sh",
+          "weightage": 13
+        }
+      ]
     },
     {
       "id": "8",
@@ -77,7 +126,14 @@
       "prompt": "Job `stuck` in `workloads-learn` was created but **no pods run and it never completes**. Diagnose why and fix it so the Job completes. Don't delete it.\n\nTarget: Job `stuck` reaches its completions (succeeded ≥ 3).",
       "hint": "`kubectl -n workloads-learn get job stuck` shows 0/3 with no pods; `kubectl -n workloads-learn get job stuck -o jsonpath='{.spec.parallelism}'` → 0. Patch it: `kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'`.",
       "solution": "kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'\nkubectl -n workloads-learn get job stuck -w",
-      "verification": [ { "id": "1", "description": "Job stuck completed (parallelism fixed)", "script": "validate/c8.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job stuck completed (parallelism fixed)",
+          "script": "validate/c8.sh",
+          "weightage": 13
+        }
+      ]
     }
   ]
 }

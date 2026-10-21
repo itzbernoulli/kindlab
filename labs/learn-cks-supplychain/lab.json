@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-supplychain",
-  "name": "Learn: Supply Chain Security (hardened)",
+  "name": "Learn: Supply Chain Security",
   "category": "CKS",
   "type": "learn",
   "objective": "CKS › Supply Chain Security (20%). Drill EVERY supply-chain corner harder than the exam: Trivy CVE scanning with severity gates, static manifest analysis with kubesec, digest pinning, banning :latest, ImagePullPolicy hardening, an approved-registry ValidatingAdmissionPolicy + binding, a VAP that bans :latest, and a no-hint diagnose-and-fix on a broken binding. Graded exactly, per requirement.",

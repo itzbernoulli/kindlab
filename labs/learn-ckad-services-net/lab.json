@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-services-net",
-  "name": "Learn: Services & Networking (hardened)",
+  "name": "Learn: Services & Networking",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Services & Networking. Drill every Service shape and the Ingress/endpoints surface: ClusterIP with named targetPort, NodePort on a pinned port, headless, ExternalName, sessionAffinity, Ingress (pathType/ingressClassName/TLS), a selector-less Service + manual EndpointSlice, and a no-hint 'no endpoints' diagnose-fix. Graded exactly.",

@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-kube-bench",
-  "name": "Learn: CIS Benchmarks (kube-bench, hardened)",
+  "name": "Learn: CIS Benchmarks (kube-bench)",
   "category": "CKS",
   "type": "learn",
   "objective": "CKS › Cluster Setup + System Hardening (10% + 15%). Drill the kube-bench workflow harder than the exam: run it as a Job against node AND master, read [PASS]/[FAIL]/[WARN], then remediate every recurring finding — manifest & PKI file modes, the kubelet read-only port, the apiserver NodeRestriction plugin — plus a no-hint diagnose-and-fix. Graded exactly, per requirement.",

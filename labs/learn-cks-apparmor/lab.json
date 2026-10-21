@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-apparmor",
-  "name": "Learn: AppArmor Confinement (hardened)",
+  "name": "Learn: AppArmor Confinement",
   "category": "CKS",
   "type": "learn",
   "requiresHost": true,

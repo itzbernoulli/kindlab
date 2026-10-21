@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-netpol",
-  "name": "Learn: Network Policies (hardened)",
+  "name": "Learn: Network Policies",
   "category": "CKS",
   "type": "learn",
   "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY NetworkPolicy corner harder than the exam: default-deny ingress & egress, allow-by-pod-label, allow-by-namespace, the AND-vs-OR peer trap, port+protocol scoping, ipBlock with except, allow-DNS, and a no-hint diagnose-and-fix. Graded exactly on the policy spec, per requirement. (kindnet does not enforce policies, so grading is on the authored spec.)",
@@ -15,7 +15,12 @@
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny-ingress\n  namespace: netpol-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Ingress\nEOF",
       "setup": "setup/q0_setup.sh",
       "verification": [
-        { "id": "1", "description": "default-deny-ingress: empty podSelector, Ingress type, no ingress rules", "script": "validate/q1_s1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "default-deny-ingress: empty podSelector, Ingress type, no ingress rules",
+          "script": "validate/q1_s1.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -26,7 +31,12 @@
       "hint": "`spec.podSelector.matchLabels.app: web`, then `ingress: [{ from: [{ podSelector: { matchLabels: { role: client } } }] }]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-from-client\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels:\n          role: client\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-from-client: targets app=web, allows from podSelector role=client", "script": "validate/q2_s1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "allow-from-client: targets app=web, allows from podSelector role=client",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -37,7 +47,12 @@
       "hint": "`from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } } }]` plus `ports: [{ protocol: TCP, port: 80 }]` in the SAME ingress rule.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-from-monitoring\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: monitoring\n    ports:\n    - protocol: TCP\n      port: 80\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-from-monitoring: from namespaceSelector name=monitoring, port TCP/80", "script": "validate/q3_s1.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "allow-from-monitoring: from namespaceSelector name=monitoring, port TCP/80",
+          "script": "validate/q3_s1.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -48,7 +63,12 @@
       "hint": "ONE `from` list entry with two keys: `- namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}` and on the same item `podSelector: {matchLabels: {role: client}}`. Not two separate `- ` items.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-and\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: monitoring\n      podSelector:\n        matchLabels:\n          role: client\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-and: ONE from entry with BOTH namespaceSelector(monitoring) AND podSelector(role=client)", "script": "validate/q4_s1.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "allow-and: ONE from entry with BOTH namespaceSelector(monitoring) AND podSelector(role=client)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -59,7 +79,12 @@
       "hint": "`podSelector: {}`, `policyTypes: [Egress]`, then `egress: [{ to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } }], ports: [{protocol: UDP, port: 53},{protocol: TCP, port: 53}] }]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny-egress-allow-dns\n  namespace: netpol-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: kube-system\n    ports:\n    - protocol: UDP\n      port: 53\n    - protocol: TCP\n      port: 53\nEOF",
       "verification": [
-        { "id": "1", "description": "default-deny-egress-allow-dns: empty podSelector, Egress, DNS UDP+TCP/53 to kube-system", "script": "validate/q5_s1.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "default-deny-egress-allow-dns: empty podSelector, Egress, DNS UDP+TCP/53 to kube-system",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -70,7 +95,12 @@
       "hint": "`podSelector.matchLabels.app: web`, `egress: [{ to: [{ podSelector: { matchLabels: { app: db } } }], ports: [{ protocol: TCP, port: 5432 }] }]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-egress-to-db\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - podSelector:\n        matchLabels:\n          app: db\n    ports:\n    - protocol: TCP\n      port: 5432\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-egress-to-db: app=web → podSelector app=db on TCP/5432", "script": "validate/q6_s1.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "allow-egress-to-db: app=web → podSelector app=db on TCP/5432",
+          "script": "validate/q6_s1.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -81,7 +111,12 @@
       "hint": "`from: [{ ipBlock: { cidr: 10.0.0.0/16, except: [10.0.5.0/24] } }]`. The except CIDR must sit inside the main cidr.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-from-cidr\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - ipBlock:\n        cidr: 10.0.0.0/16\n        except:\n        - 10.0.5.0/24\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-from-cidr: app=web, ipBlock cidr 10.0.0.0/16 except 10.0.5.0/24", "script": "validate/q7_s1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "allow-from-cidr: app=web, ipBlock cidr 10.0.0.0/16 except 10.0.5.0/24",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -92,7 +127,12 @@
       "hint": "`kubectl -n netpol-learn get netpol allow-api -o yaml` and compare each field to the target: the ingress `from` podSelector and/or the port are wrong. Edit it: `kubectl -n netpol-learn edit netpol allow-api`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-api\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels:\n          role: client\n    ports:\n    - protocol: TCP\n      port: 8080\nEOF",
       "verification": [
-        { "id": "1", "description": "allow-api fixed: app=web ← podSelector role=client on TCP/8080", "script": "validate/q8_s1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "allow-api fixed: app=web ← podSelector role=client on TCP/8080",
+          "script": "validate/q8_s1.sh",
+          "weightage": 12
+        }
       ]
     }
   ]

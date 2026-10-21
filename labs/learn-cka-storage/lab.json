@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-storage",
-  "name": "Learn: Storage (hardened)",
+  "name": "Learn: Storage",
   "category": "CKA",
   "type": "learn",
   "objective": "CKA › Storage. Drill EVERY storage corner harder than the exam: StorageClasses (provisioner, reclaimPolicy, binding mode), static PVs with a retain reclaim policy, explicit static PVC binding, mounting a PVC, subPath mounts, the default-class annotation, dynamic provisioning via the default class, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",

@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-helm-kustomize",
-  "name": "Learn: Helm & Kustomize (hardened)",
+  "name": "Learn: Helm & Kustomize",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Application Deployment. Drill EVERY Helm and Kustomize corner harder than the exam: scaffold+install a release, override values with --set and a values file, inspect release state and revisions, render without installing, apply a Kustomize base, layer transforms (namePrefix + commonLabels + replicas), generate a ConfigMap, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",

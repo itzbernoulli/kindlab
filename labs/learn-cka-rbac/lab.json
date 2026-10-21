@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-rbac",
-  "name": "Learn: RBAC & Certificates (hardened)",
+  "name": "Learn: RBAC & Certificates",
   "category": "CKA",
   "type": "learn",
   "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY RBAC corner harder than the exam: namespaced Role vs cluster-scoped ClusterRole, binding to users and ServiceAccounts, reusing a ClusterRole inside one namespace via a RoleBinding, least-privilege with resourceNames, apiGroups for subresources, approving a CSR, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
@@ -15,7 +15,12 @@
       "solution": "kubectl -n rbac-learn create role pod-reader --verb=get,list,watch --resource=pods\nkubectl -n rbac-learn create rolebinding dev-pr --role=pod-reader --user=dev\nkubectl auth can-i list pods --as=dev -n rbac-learn   # -> yes",
       "setup": "setup/q0_setup.sh",
       "verification": [
-        { "id": "1", "description": "Role pod-reader (get,list,watch pods) bound to user dev; dev can list pods but not delete", "script": "validate/c1.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "Role pod-reader (get,list,watch pods) bound to user dev; dev can list pods but not delete",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -26,7 +31,12 @@
       "hint": "`kubectl create clusterrole node-reader --verb=get,list --resource=nodes`, then `kubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev`.",
       "solution": "kubectl create clusterrole node-reader --verb=get,list --resource=nodes\nkubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev\nkubectl auth can-i list nodes --as=dev   # -> yes",
       "verification": [
-        { "id": "1", "description": "ClusterRole node-reader (get,list nodes) bound cluster-wide to dev; can list nodes but not list secrets", "script": "validate/c2.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "ClusterRole node-reader (get,list nodes) bound cluster-wide to dev; can list nodes but not list secrets",
+          "script": "validate/c2.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -37,7 +47,12 @@
       "hint": "`kubectl -n rbac-learn create sa ci`, then `kubectl -n rbac-learn create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci`.",
       "solution": "kubectl -n rbac-learn create sa ci\nkubectl -n rbac-learn create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci\nkubectl auth can-i list pods --as=system:serviceaccount:rbac-learn:ci -n rbac-learn   # -> yes",
       "verification": [
-        { "id": "1", "description": "ServiceAccount ci exists and is bound to pod-reader; the SA identity can list pods in rbac-learn", "script": "validate/c3.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "ServiceAccount ci exists and is bound to pod-reader; the SA identity can list pods in rbac-learn",
+          "script": "validate/c3.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -48,7 +63,12 @@
       "hint": "`kubectl create clusterrole deploy-admin --verb=get,list,create,update,delete --resource=deployments.apps`, then `kubectl -n rbac-learn create rolebinding dev-deploy --clusterrole=deploy-admin --user=dev`.",
       "solution": "kubectl create clusterrole deploy-admin --verb=get,list,create,update,delete --resource=deployments.apps\nkubectl -n rbac-learn create rolebinding dev-deploy --clusterrole=deploy-admin --user=dev\nkubectl auth can-i create deployments --as=dev -n rbac-learn   # -> yes\nkubectl auth can-i create deployments --as=dev -n default      # -> no",
       "verification": [
-        { "id": "1", "description": "RoleBinding dev-deploy references ClusterRole deploy-admin (apps group); dev can create deployments in rbac-learn but NOT in default", "script": "validate/c4.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "RoleBinding dev-deploy references ClusterRole deploy-admin (apps group); dev can create deployments in rbac-learn but NOT in default",
+          "script": "validate/c4.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -59,7 +79,12 @@
       "hint": "`kubectl -n rbac-learn create role cm-reader --verb=get --resource=configmaps --resource-name=app-config`, then bind it to `dev`.",
       "solution": "kubectl -n rbac-learn create role cm-reader --verb=get --resource=configmaps --resource-name=app-config\nkubectl -n rbac-learn create rolebinding dev-cm --role=cm-reader --user=dev\nkubectl auth can-i get configmaps/app-config  --as=dev -n rbac-learn   # -> yes\nkubectl auth can-i get configmaps/other-config --as=dev -n rbac-learn   # -> no",
       "verification": [
-        { "id": "1", "description": "Role cm-reader restricted via resourceNames; dev can get app-config but NOT other-config", "script": "validate/c5.sh", "weightage": 13 }
+        {
+          "id": "1",
+          "description": "Role cm-reader restricted via resourceNames; dev can get app-config but NOT other-config",
+          "script": "validate/c5.sh",
+          "weightage": 13
+        }
       ]
     },
     {
@@ -70,7 +95,12 @@
       "hint": "`kubectl -n rbac-learn create role log-reader --verb=get --resource=pods/log`, then `kubectl -n rbac-learn create rolebinding dev-log --role=log-reader --user=dev`.",
       "solution": "kubectl -n rbac-learn create role log-reader --verb=get --resource=pods/log\nkubectl -n rbac-learn create rolebinding dev-log --role=log-reader --user=dev\nkubectl auth can-i get pods/log --as=dev -n rbac-learn   # -> yes",
       "verification": [
-        { "id": "1", "description": "Role log-reader grants get on pods/log bound to dev; dev can get pods/log", "script": "validate/c6.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "Role log-reader grants get on pods/log bound to dev; dev can get pods/log",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -82,7 +112,12 @@
       "solution": "kubectl get csr\nkubectl certificate approve learn-dev\nkubectl get csr learn-dev   # Approved,Issued",
       "setup": "setup/q7_setup.sh",
       "verification": [
-        { "id": "1", "description": "CSR learn-dev condition is Approved,Issued", "script": "validate/c7.sh", "weightage": 11 }
+        {
+          "id": "1",
+          "description": "CSR learn-dev condition is Approved,Issued",
+          "script": "validate/c7.sh",
+          "weightage": 11
+        }
       ]
     },
     {
@@ -94,7 +129,12 @@
       "solution": "# describe shows roleRef -> Role 'secret-readr' (typo); no such Role, so it grants nothing.\nkubectl -n rbac-learn delete rolebinding auditor-sr\nkubectl -n rbac-learn create rolebinding auditor-sr --role=secret-reader --user=auditor\nkubectl auth can-i list secrets --as=auditor -n rbac-learn   # -> yes",
       "setup": "setup/q8_setup.sh",
       "verification": [
-        { "id": "1", "description": "auditor can list secrets in rbac-learn (dangling roleRef fixed)", "script": "validate/c8.sh", "weightage": 11 }
+        {
+          "id": "1",
+          "description": "auditor can list secrets in rbac-learn (dangling roleRef fixed)",
+          "script": "validate/c8.sh",
+          "weightage": 11
+        }
       ]
     }
   ]

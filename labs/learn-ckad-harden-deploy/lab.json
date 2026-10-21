@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-harden-deploy",
-  "name": "Learn: Assemble a Hardened Deployment (capstone)",
+  "name": "Learn: Assemble a Hardened Deployment",
   "category": "CKAD",
   "type": "learn",
   "objective": "Capstone practical: assemble ONE Deployment that satisfies ~10 interlocking production requirements — config + secret injection, emptyDir, full securityContext hardening, exact resources, a probe, a dedicated SA, and its Service. Graded strictly, per requirement, with the exact reason for anything you miss. This is the 'put it all together' skill the exam tests and most practice skips.",
@@ -15,16 +15,66 @@
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: checkout, namespace: shop }\nspec:\n  replicas: 3\n  selector: { matchLabels: { app: checkout } }\n  template:\n    metadata: { labels: { app: checkout, tier: api } }\n    spec:\n      serviceAccountName: checkout-sa\n      containers:\n      - name: api\n        image: nginx:1.27-alpine\n        envFrom: [ { configMapRef: { name: checkout-cfg } } ]\n        env:\n        - name: API_KEY\n          valueFrom: { secretKeyRef: { name: checkout-sec, key: API_KEY } }\n        volumeMounts: [ { name: cache, mountPath: /var/cache/checkout } ]\n        securityContext:\n          readOnlyRootFilesystem: true\n          runAsNonRoot: true\n          runAsUser: 1001\n          capabilities: { drop: [\"ALL\"] }\n        resources:\n          requests: { cpu: 100m, memory: 128Mi }\n          limits: { cpu: 250m, memory: 256Mi }\n        readinessProbe:\n          httpGet: { path: /, port: 80 }\n          initialDelaySeconds: 5\n          periodSeconds: 10\n      volumes: [ { name: cache, emptyDir: {} } ]\n---\napiVersion: v1\nkind: Service\nmetadata: { name: checkout, namespace: shop }\nspec:\n  type: ClusterIP\n  selector: { app: checkout }\n  ports: [ { port: 8080, targetPort: 80 } ]\nYAML",
       "setup": "setup/q0_setup.sh",
       "verification": [
-        { "id": "1", "description": "Deployment checkout: 3 replicas, one container 'api' on image nginx:1.27-alpine", "script": "validate/c1.sh", "weightage": 10 },
-        { "id": "2", "description": "Uses ServiceAccount checkout-sa (not default)", "script": "validate/c2.sh", "weightage": 10 },
-        { "id": "3", "description": "Pod labels app=checkout + tier=api; selector app=checkout", "script": "validate/c3.sh", "weightage": 10 },
-        { "id": "4", "description": "envFrom bulk-injects ConfigMap checkout-cfg", "script": "validate/c4.sh", "weightage": 10 },
-        { "id": "5", "description": "env API_KEY from Secret checkout-sec key API_KEY", "script": "validate/c5.sh", "weightage": 10 },
-        { "id": "6", "description": "emptyDir mounted at /var/cache/checkout", "script": "validate/c6.sh", "weightage": 10 },
-        { "id": "7", "description": "securityContext: readOnlyRootFilesystem, runAsNonRoot, UID 1001, drop ALL caps", "script": "validate/c7.sh", "weightage": 10 },
-        { "id": "8", "description": "resources requests 100m/128Mi + limits 250m/256Mi (exact)", "script": "validate/c8.sh", "weightage": 10 },
-        { "id": "9", "description": "readinessProbe httpGet / :80, initialDelay 5s, period 10s", "script": "validate/c9.sh", "weightage": 10 },
-        { "id": "10", "description": "Service checkout: ClusterIP 8080 -> targetPort 80, selector app=checkout", "script": "validate/c10.sh", "weightage": 10 }
+        {
+          "id": "1",
+          "description": "Deployment checkout: 3 replicas, one container 'api' on image nginx:1.27-alpine",
+          "script": "validate/c1.sh",
+          "weightage": 10
+        },
+        {
+          "id": "2",
+          "description": "Uses ServiceAccount checkout-sa (not default)",
+          "script": "validate/c2.sh",
+          "weightage": 10
+        },
+        {
+          "id": "3",
+          "description": "Pod labels app=checkout + tier=api; selector app=checkout",
+          "script": "validate/c3.sh",
+          "weightage": 10
+        },
+        {
+          "id": "4",
+          "description": "envFrom bulk-injects ConfigMap checkout-cfg",
+          "script": "validate/c4.sh",
+          "weightage": 10
+        },
+        {
+          "id": "5",
+          "description": "env API_KEY from Secret checkout-sec key API_KEY",
+          "script": "validate/c5.sh",
+          "weightage": 10
+        },
+        {
+          "id": "6",
+          "description": "emptyDir mounted at /var/cache/checkout",
+          "script": "validate/c6.sh",
+          "weightage": 10
+        },
+        {
+          "id": "7",
+          "description": "securityContext: readOnlyRootFilesystem, runAsNonRoot, UID 1001, drop ALL caps",
+          "script": "validate/c7.sh",
+          "weightage": 10
+        },
+        {
+          "id": "8",
+          "description": "resources requests 100m/128Mi + limits 250m/256Mi (exact)",
+          "script": "validate/c8.sh",
+          "weightage": 10
+        },
+        {
+          "id": "9",
+          "description": "readinessProbe httpGet / :80, initialDelay 5s, period 10s",
+          "script": "validate/c9.sh",
+          "weightage": 10
+        },
+        {
+          "id": "10",
+          "description": "Service checkout: ClusterIP 8080 -> targetPort 80, selector app=checkout",
+          "script": "validate/c10.sh",
+          "weightage": 10
+        }
       ]
     }
   ]

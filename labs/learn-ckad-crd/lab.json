@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-crd",
-  "name": "Learn: Custom Resources (CRDs) (hardened)",
+  "name": "Learn: Custom Resources (CRDs)",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Application Environment, Configuration and Security. Drill EVERY CRD corner harder than the exam: author a typed CRD, create and inspect CRs, discover an installed CRD, list via plural/short name, enforce schema validation (required + enum), cluster-scoped CRDs, and a no-hint diagnose-and-fix on a CRD that won't serve. Graded exactly, per requirement.",

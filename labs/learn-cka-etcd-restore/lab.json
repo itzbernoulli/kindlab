@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-etcd-restore",
-  "name": "Learn: etcd Backup & Restore (hardened)",
+  "name": "Learn: etcd Backup & Restore",
   "category": "CKA",
   "type": "learn",
   "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY corner of the etcd backup/restore task harder than the exam: snapshot save over TLS, local status/verify, restore into a fresh data dir, restore with cluster identity flags, reading the static-Pod manifest for the data dir and TLS config, a no-hint diagnose-and-fix on a bad snapshot, and proving the control plane survived. Graded exactly, on node state — never endangering the live cluster.",

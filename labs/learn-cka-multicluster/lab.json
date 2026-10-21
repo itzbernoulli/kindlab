@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-multicluster",
-  "name": "Learn: Multi-cluster Contexts (hardened)",
+  "name": "Learn: Multi-cluster Contexts",
   "category": "CKA",
   "type": "learn",
   "needsSecondCluster": true,
@@ -15,7 +15,14 @@
       "hint": "`kubectl config use-context kind-kindlab2` then `kubectl create namespace prod` — or one-shot: `kubectl --context kind-kindlab2 create ns prod`.",
       "solution": "kubectl config use-context kind-kindlab2\nkubectl create namespace prod\nkubectl config get-contexts   # confirm the * is on kind-kindlab2",
       "setup": "setup/q0_setup.sh",
-      "verification": [ { "id": "1", "description": "namespace 'prod' exists on cluster2 only", "script": "validate/q1_s1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "namespace 'prod' exists on cluster2 only",
+          "script": "validate/q1_s1.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "2",
@@ -24,7 +31,14 @@
       "prompt": "On cluster2, create a Deployment `api` (image `nginx:alpine`, 2 replicas) in the `prod` namespace.\n\nTarget: Deployment `api` with image `nginx:alpine` and 2 replicas exists in `prod` on cluster2.",
       "hint": "`kubectl --context kind-kindlab2 -n prod create deployment api --image=nginx:alpine --replicas=2`.",
       "solution": "kubectl --context kind-kindlab2 -n prod create deployment api --image=nginx:alpine --replicas=2",
-      "verification": [ { "id": "1", "description": "Deployment 'api' (nginx:alpine, 2 replicas) in prod on cluster2", "script": "validate/q2_s1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'api' (nginx:alpine, 2 replicas) in prod on cluster2",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "3",
@@ -33,7 +47,14 @@
       "prompt": "Switch to **cluster1** (`$CTX`) and create a ConfigMap `shared-cfg` with key `env=prod` in the `default` namespace **there**.\n\nTarget: `shared-cfg` (env=prod) exists in default on cluster1 and NOT in default on cluster2.",
       "hint": "`kubectl config use-context kind-kindlab` then `kubectl create configmap shared-cfg --from-literal=env=prod`.",
       "solution": "kubectl config use-context kind-kindlab\nkubectl create configmap shared-cfg --from-literal=env=prod",
-      "verification": [ { "id": "1", "description": "configmap 'shared-cfg' (env=prod) in default on cluster1 only", "script": "validate/q3_s1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "configmap 'shared-cfg' (env=prod) in default on cluster1 only",
+          "script": "validate/q3_s1.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "4",
@@ -42,7 +63,14 @@
       "prompt": "Replicate `shared-cfg` (env=prod) from cluster1 into the `prod` namespace on **cluster2** — same key/value.\n\nTarget: ConfigMap `shared-cfg` with `env=prod` exists in `prod` on cluster2.",
       "hint": "Simplest that always works: `kubectl --context kind-kindlab2 -n prod create configmap shared-cfg --from-literal=env=prod`. Or pipe `get -o yaml` from cluster1 into `apply -f -` on cluster2 with `-n prod`.",
       "solution": "kubectl --context kind-kindlab2 -n prod create configmap shared-cfg --from-literal=env=prod",
-      "verification": [ { "id": "1", "description": "shared-cfg (env=prod) exists in prod on cluster2", "script": "validate/q4_s1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "shared-cfg (env=prod) exists in prod on cluster2",
+          "script": "validate/q4_s1.sh",
+          "weightage": 12
+        }
+      ]
     },
     {
       "id": "5",
@@ -51,7 +79,14 @@
       "prompt": "Set the **default namespace** of the `$CTX2` context to `prod` (so `kubectl --context $CTX2 get pods` with no `-n` targets `prod`).\n\nTarget: context `kind-kindlab2` has `namespace: prod` in the kubeconfig.",
       "hint": "`kubectl config set-context kind-kindlab2 --namespace=prod`. Confirm with `kubectl config get-contexts` (NAMESPACE column).",
       "solution": "kubectl config set-context kind-kindlab2 --namespace=prod\nkubectl config get-contexts",
-      "verification": [ { "id": "1", "description": "context kind-kindlab2 default namespace == prod", "script": "validate/q5_s1.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "context kind-kindlab2 default namespace == prod",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
     },
     {
       "id": "6",
@@ -60,7 +95,14 @@
       "prompt": "On **cluster1** (`$CTX`), create a generic Secret `db-cred` in `default` with key `password=s3cr3t`.\n\nTarget: Secret `db-cred` with `password=s3cr3t` exists in default on cluster1 and does NOT exist in default on cluster2.",
       "hint": "`kubectl --context kind-kindlab -n default create secret generic db-cred --from-literal=password=s3cr3t`.",
       "solution": "kubectl --context kind-kindlab -n default create secret generic db-cred --from-literal=password=s3cr3t",
-      "verification": [ { "id": "1", "description": "secret 'db-cred' (password=s3cr3t) in default on cluster1 only", "script": "validate/q6_s1.sh", "weightage": 13 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "secret 'db-cred' (password=s3cr3t) in default on cluster1 only",
+          "script": "validate/q6_s1.sh",
+          "weightage": 13
+        }
+      ]
     },
     {
       "id": "7",
@@ -69,7 +111,14 @@
       "prompt": "A Deployment `cache` (image `redis:7`, 1 replica) was supposed to live in namespace `prod` on **cluster2**, but setup put it in namespace `default` on **cluster1** instead. Fix it: `cache` must exist in `prod` on cluster2 and must NOT exist in `default` on cluster1.\n\nTarget: Deployment `cache` (redis:7) in prod on cluster2; absent from default on cluster1.",
       "hint": "Find the stray: `kubectl --context kind-kindlab -n default get deploy cache`. Recreate on cluster2: `kubectl --context kind-kindlab2 -n prod create deployment cache --image=redis:7`, then `kubectl --context kind-kindlab -n default delete deployment cache`.",
       "solution": "# setup left 'cache' in default on cluster1 by mistake\nkubectl --context kind-kindlab2 -n prod create deployment cache --image=redis:7 --replicas=1\nkubectl --context kind-kindlab -n default delete deployment cache\n# verify: present on cluster2, gone from cluster1\nkubectl --context kind-kindlab2 -n prod get deploy cache\nkubectl --context kind-kindlab -n default get deploy cache",
-      "verification": [ { "id": "1", "description": "Deployment 'cache' (redis:7) in prod on cluster2 and absent from default on cluster1", "script": "validate/q7_s1.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'cache' (redis:7) in prod on cluster2 and absent from default on cluster1",
+          "script": "validate/q7_s1.sh",
+          "weightage": 14
+        }
+      ]
     },
     {
       "id": "8",
@@ -78,7 +127,14 @@
       "prompt": "Leave your **active** context set to cluster1 (`$CTX`).\n\nTarget: `kubectl config current-context` returns `kind-kindlab`.",
       "hint": "`kubectl config use-context kind-kindlab`.",
       "solution": "kubectl config use-context kind-kindlab\nkubectl config current-context   # kind-kindlab",
-      "verification": [ { "id": "1", "description": "active context is cluster1 (kind-kindlab)", "script": "validate/q8_s1.sh", "weightage": 12 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "active context is cluster1 (kind-kindlab)",
+          "script": "validate/q8_s1.sh",
+          "weightage": 12
+        }
+      ]
     }
   ]
 }

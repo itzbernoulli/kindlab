@@ -1,6 +1,6 @@
 {
   "id": "learn-ckad-observability",
-  "name": "Learn: Debugging & Observability (hardened)",
+  "name": "Learn: Debugging & Observability",
   "category": "CKAD",
   "type": "learn",
   "objective": "CKAD › Application Observability and Maintenance (15%). Goal: diagnose and fix failing workloads using kubectl logs, describe, and events — CrashLoopBackOff, ImagePullBackOff, Pending (unschedulable), reading container stdout, and a failing readiness probe.",

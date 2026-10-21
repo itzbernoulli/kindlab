@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-gateway-api",
-  "name": "Learn: Gateway API (hardened)",
+  "name": "Learn: Gateway API",
   "category": "CKA",
   "type": "learn",
   "objective": "CKA › Services & Networking. Drill EVERY corner of the Gateway API harder than the exam: install the CRDs, define a GatewayClass, stand up a Gateway with a named HTTP listener scoped by allowedRoutes, attach an HTTPRoute (path match + backend), add header-based matching, rewrite request headers with a filter, split traffic by weight across two backends, contrast with Ingress, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
@@ -15,7 +15,12 @@
       "solution": "kubectl apply -f /tmp/gateway-api-crds.yaml\nkubectl get crd gateways.gateway.networking.k8s.io",
       "setup": "setup/q0_setup.sh",
       "verification": [
-        { "id": "1", "description": "gateways.gateway.networking.k8s.io CRD installed and Established", "script": "validate/c1.sh", "weightage": 10 }
+        {
+          "id": "1",
+          "description": "gateways.gateway.networking.k8s.io CRD installed and Established",
+          "script": "validate/c1.sh",
+          "weightage": 10
+        }
       ]
     },
     {
@@ -26,7 +31,12 @@
       "hint": "Apply a manifest: `apiVersion: gateway.networking.k8s.io/v1`, `kind: GatewayClass`, `metadata.name: kindlab-gc`, `spec.controllerName: kindlab.io/gateway-controller`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: kindlab-gc\nspec:\n  controllerName: kindlab.io/gateway-controller\nEOF",
       "verification": [
-        { "id": "1", "description": "GatewayClass kindlab-gc exists with controllerName kindlab.io/gateway-controller", "script": "validate/c2.sh", "weightage": 10 }
+        {
+          "id": "1",
+          "description": "GatewayClass kindlab-gc exists with controllerName kindlab.io/gateway-controller",
+          "script": "validate/c2.sh",
+          "weightage": 10
+        }
       ]
     },
     {
@@ -37,7 +47,12 @@
       "hint": "`spec.gatewayClassName: kindlab-gc`; `spec.listeners: [{name: http, protocol: HTTP, port: 80, allowedRoutes: {namespaces: {from: Same}}}]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: web-gw\n  namespace: gw-learn\nspec:\n  gatewayClassName: kindlab-gc\n  listeners:\n  - name: http\n    protocol: HTTP\n    port: 80\n    allowedRoutes:\n      namespaces:\n        from: Same\nEOF",
       "verification": [
-        { "id": "1", "description": "Gateway web-gw: class kindlab-gc + listener http HTTP:80 allowedRoutes from=Same", "script": "validate/c3.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "Gateway web-gw: class kindlab-gc + listener http HTTP:80 allowedRoutes from=Same",
+          "script": "validate/c3.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -48,7 +63,12 @@
       "hint": "`spec.parentRefs: [{name: web-gw, sectionName: http}]`, `spec.hostnames: [hello.example.com]`, rule `matches[0].path: {type: PathPrefix, value: /}` and `backendRefs: [{name: hello, port: 80}]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: web-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    backendRefs:\n    - name: hello\n      port: 80\nEOF",
       "verification": [
-        { "id": "1", "description": "web-route: parentRef web-gw/http + hostname + PathPrefix / → hello:80", "script": "validate/c4.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "web-route: parentRef web-gw/http + hostname + PathPrefix / → hello:80",
+          "script": "validate/c4.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -59,7 +79,12 @@
       "hint": "In the single `matches` entry put both `path: {type: PathPrefix, value: /}` and `headers: [{type: Exact, name: x-env, value: canary}]`, then `backendRefs: [{name: hello-canary, port: 80}]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: canary-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n      headers:\n      - type: Exact\n        name: x-env\n        value: canary\n    backendRefs:\n    - name: hello-canary\n      port: 80\nEOF",
       "verification": [
-        { "id": "1", "description": "canary-route: one match ANDs PathPrefix / with header x-env=canary → hello-canary:80", "script": "validate/c5.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "canary-route: one match ANDs PathPrefix / with header x-env=canary → hello-canary:80",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -70,7 +95,12 @@
       "hint": "Under the rule: `filters: [{type: RequestHeaderModifier, requestHeaderModifier: {set: [{name: x-gateway, value: kindlab}]}}]` alongside `backendRefs: [{name: hello, port: 80}]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: hdr-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    filters:\n    - type: RequestHeaderModifier\n      requestHeaderModifier:\n        set:\n        - name: x-gateway\n          value: kindlab\n    backendRefs:\n    - name: hello\n      port: 80\nEOF",
       "verification": [
-        { "id": "1", "description": "hdr-route: RequestHeaderModifier set x-gateway=kindlab + backend hello:80", "script": "validate/c6.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "hdr-route: RequestHeaderModifier set x-gateway=kindlab + backend hello:80",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -81,7 +111,12 @@
       "hint": "One rule with `backendRefs: [{name: hello, port: 80, weight: 90}, {name: hello-canary, port: 80, weight: 10}]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: split-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    backendRefs:\n    - name: hello\n      port: 80\n      weight: 90\n    - name: hello-canary\n      port: 80\n      weight: 10\nEOF",
       "verification": [
-        { "id": "1", "description": "split-route: hello:80 weight 90 + hello-canary:80 weight 10 in one rule", "script": "validate/c7.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "split-route: hello:80 weight 90 + hello-canary:80 weight 10 in one rule",
+          "script": "validate/c7.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -92,7 +127,12 @@
       "hint": "`kubectl create ingress web-ing -n gw-learn --rule=\"hello.example.com/*=hello:80\"`.",
       "solution": "kubectl create ingress web-ing -n gw-learn --rule=\"hello.example.com/*=hello:80\"",
       "verification": [
-        { "id": "1", "description": "Ingress web-ing: host hello.example.com, path / Prefix → hello:80", "script": "validate/c8.sh", "weightage": 8 }
+        {
+          "id": "1",
+          "description": "Ingress web-ing: host hello.example.com, path / Prefix → hello:80",
+          "script": "validate/c8.sh",
+          "weightage": 8
+        }
       ]
     },
     {
@@ -104,7 +144,12 @@
       "solution": "kubectl -n gw-learn patch httproute broken-route --type=json -p='[\n  {\"op\":\"replace\",\"path\":\"/spec/parentRefs/0/name\",\"value\":\"web-gw\"},\n  {\"op\":\"replace\",\"path\":\"/spec/parentRefs/0/sectionName\",\"value\":\"http\"},\n  {\"op\":\"replace\",\"path\":\"/spec/rules/0/backendRefs/0/name\",\"value\":\"hello\"},\n  {\"op\":\"replace\",\"path\":\"/spec/rules/0/backendRefs/0/port\",\"value\":80}\n]'",
       "setup": "setup/q9_setup.sh",
       "verification": [
-        { "id": "1", "description": "broken-route fixed: parentRef web-gw/http + backend hello:80", "script": "validate/c9.sh", "weightage": 6 }
+        {
+          "id": "1",
+          "description": "broken-route fixed: parentRef web-gw/http + backend hello:80",
+          "script": "validate/c9.sh",
+          "weightage": 6
+        }
       ]
     }
   ]

@@ -1,6 +1,6 @@
 {
   "id": "learn-cka-scheduling",
-  "name": "Learn: Scheduling (hardened)",
+  "name": "Learn: Scheduling",
   "category": "CKA",
   "type": "learn",
   "objective": "CKA › Workloads & Scheduling. Drill EVERY way to control where pods land, harder than the exam: node labels + nodeSelector, taints & tolerations (Equal + Exists), required and preferred nodeAffinity, pod anti-affinity spread, manual nodeName scheduling, DaemonSet coverage, and a no-hint diagnose-and-fix for an unschedulable pod. Graded exactly, per requirement.",
@@ -15,7 +15,12 @@
       "solution": "kubectl label node \"$W1\" disktype=ssd --overwrite\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: ssd-pod\n  namespace: sched-learn\nspec:\n  nodeSelector:\n    disktype: ssd\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "setup": "setup/q0_setup.sh",
       "verification": [
-        { "id": "1", "description": "ssd-pod Running on a disktype=ssd node via nodeSelector", "script": "validate/c1.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "ssd-pod Running on a disktype=ssd node via nodeSelector",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -26,7 +31,12 @@
       "hint": "`kubectl taint node \"$W1\" workload=batch:NoSchedule`. Toleration `{key: workload, operator: Equal, value: batch, effect: NoSchedule}` plus `nodeSelector: {disktype: ssd}`.",
       "solution": "kubectl taint node \"$W1\" workload=batch:NoSchedule --overwrite\ncat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: batch-pod\n  namespace: sched-learn\nspec:\n  nodeSelector:\n    disktype: ssd\n  tolerations:\n  - key: workload\n    operator: Equal\n    value: batch\n    effect: NoSchedule\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "$W1 tainted workload=batch:NoSchedule and batch-pod Running there with matching toleration", "script": "validate/c2.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "$W1 tainted workload=batch:NoSchedule and batch-pod Running there with matching toleration",
+          "script": "validate/c2.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -37,7 +47,12 @@
       "hint": "Under `requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0]` set `key: tier`, `operator: In`, `values: [gold]`. Add `tolerations: [{operator: Exists}]`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: affinity-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        nodeSelectorTerms:\n        - matchExpressions:\n          - key: tier\n            operator: In\n            values: [\"gold\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "affinity-pod Running on tier=gold node via required nodeAffinity", "script": "validate/c3.sh", "weightage": 14 }
+        {
+          "id": "1",
+          "description": "affinity-pod Running on tier=gold node via required nodeAffinity",
+          "script": "validate/c3.sh",
+          "weightage": 14
+        }
       ]
     },
     {
@@ -48,7 +63,12 @@
       "hint": "`preferredDuringSchedulingIgnoredDuringExecution: [{weight: 80, preference: {matchExpressions: [{key: zone, operator: In, values: [b]}]}}]`; add `tolerations: [{operator: Exists}]`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: prefer-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      preferredDuringSchedulingIgnoredDuringExecution:\n      - weight: 80\n        preference:\n          matchExpressions:\n          - key: zone\n            operator: In\n            values: [\"b\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "prefer-pod Running with preferred nodeAffinity weight 80, zone In [b]", "script": "validate/c4.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "prefer-pod Running with preferred nodeAffinity weight 80, zone In [b]",
+          "script": "validate/c4.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -59,7 +79,12 @@
       "hint": "Put `nodeName: <the $W2 node name>` in `spec`. Find the exact name with `kubectl get nodes`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: manual-pod\n  namespace: sched-learn\nspec:\n  nodeName: $W2\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "manual-pod Running and pinned to $W2 via nodeName", "script": "validate/c5.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "manual-pod Running and pinned to $W2 via nodeName",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -70,7 +95,12 @@
       "hint": "DaemonSet selector `app=node-agent`; template `tolerations: [{operator: Exists}]`. Verify with `kubectl -n sched-learn get ds node-agent` vs `kubectl get nodes`.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: node-agent\n  namespace: sched-learn\nspec:\n  selector:\n    matchLabels:\n      app: node-agent\n  template:\n    metadata:\n      labels:\n        app: node-agent\n    spec:\n      tolerations:\n      - operator: Exists\n      containers:\n      - name: c\n        image: busybox:1.36\n        command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "DaemonSet node-agent runs one ready pod on every node", "script": "validate/c6.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "DaemonSet node-agent runs one ready pod on every node",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -81,7 +111,12 @@
       "hint": "`affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution: [{labelSelector: {matchLabels: {app: spread}}, topologyKey: kubernetes.io/hostname}]`; add `tolerations: [{operator: Exists}]` so both nodes are usable.",
       "solution": "cat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: spread\n  namespace: sched-learn\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: spread\n  template:\n    metadata:\n      labels:\n        app: spread\n    spec:\n      tolerations:\n      - operator: Exists\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                app: spread\n            topologyKey: kubernetes.io/hostname\n      containers:\n      - name: c\n        image: busybox:1.36\n        command: [\"sleep\",\"3600\"]\nEOF",
       "verification": [
-        { "id": "1", "description": "spread: 2 replicas Running on 2 distinct nodes via required podAntiAffinity", "script": "validate/c7.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "spread: 2 replicas Running on 2 distinct nodes via required podAntiAffinity",
+          "script": "validate/c7.sh",
+          "weightage": 12
+        }
       ]
     },
     {
@@ -92,7 +127,12 @@
       "hint": "`kubectl -n sched-learn describe pod -l app=sched-diag` → the events say no node matches its `nodeSelector` (disktype=nvme). Either remove that nodeSelector or point it at a label a node actually has, then watch `rollout status`.",
       "solution": "# describe shows: 0/3 nodes available — node(s) didn't match nodeSelector disktype=nvme.\n# No node has disktype=nvme, so remove the impossible selector (an untainted node will take it).\nkubectl -n sched-learn patch deployment sched-diag --type=json \\\n  -p='[{\"op\":\"remove\",\"path\":\"/spec/template/spec/nodeSelector\"}]'\nkubectl -n sched-learn rollout status deployment/sched-diag",
       "verification": [
-        { "id": "1", "description": "Deployment sched-diag has >=1 available replica (scheduling fault fixed)", "script": "validate/c8.sh", "weightage": 12 }
+        {
+          "id": "1",
+          "description": "Deployment sched-diag has >=1 available replica (scheduling fault fixed)",
+          "script": "validate/c8.sh",
+          "weightage": 12
+        }
       ]
     }
   ]

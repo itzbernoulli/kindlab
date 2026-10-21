@@ -1,6 +1,6 @@
 {
   "id": "learn-cks-ingress-tls",
-  "name": "Learn: Ingress TLS (hardened)",
+  "name": "Learn: Ingress TLS",
   "category": "CKS",
   "type": "learn",
   "objective": "CKS › Cluster Setup. Drill EVERY corner of terminating TLS at the Ingress harder than the exam: build a kubernetes.io/tls Secret from a self-signed cert, wire a spec.tls block, pin the backend rule, bind an ingressClassName, keep tls hosts aligned with rule hosts, rotate the cert in place under the same name, and a no-hint diagnose-and-fix on a broken Ingress. Graded exactly, per requirement.",

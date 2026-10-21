@@ -1,0 +1,56 @@
+{
+  "id": "learn-ckad-autoscaling",
+  "name": "Learn: Autoscaling (HPA)",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD › Application Deployment. Create HorizontalPodAutoscalers: imperative autoscale, autoscaling/v2 with memory and multiple metrics, scaling behavior, and the no-requests diagnose-fix. Graded on the HPA object (this bench has no metrics-server, so actual scaling needs one).",
+  "description": "Five strict HPA practicals against pre-seeded Deployments. Each Check shows which requirements you met and why any failed.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Autoscale a Deployment (imperative)",
+      "teach": "An **HPA** scales a Deployment's replicas on observed metrics. Create one fast: `kubectl autoscale deployment <d> --name <h> --cpu-percent=70 --min=2 --max=10`.\n\n**Gotcha:** the target Deployment must set resource **requests** for that metric, or the HPA can't compute utilization (shows `<unknown>`).",
+      "prompt": "In `hpa-learn`, create an HPA named `web-hpa` for Deployment `web`: target **70%** average CPU, min **2**, max **10**.\n\nTarget: `web-hpa` → scaleTargetRef `web`, minReplicas 2, maxReplicas 10, CPU Utilization 70%.",
+      "hint": "`kubectl -n hpa-learn autoscale deployment web --name web-hpa --cpu-percent=70 --min=2 --max=10`.",
+      "solution": "kubectl -n hpa-learn autoscale deployment web --name web-hpa --cpu-percent=70 --min=2 --max=10\nkubectl -n hpa-learn get hpa web-hpa",
+      "setup": "setup/q0_setup.sh",
+      "verification": [ { "id": "1", "description": "web-hpa -> web, min 2, max 10, CPU 70%", "script": "validate/c1.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "2",
+      "title": "HPA v2 on memory",
+      "teach": "The `autoscaling/v2` HPA scales on any metric via `spec.metrics`. A **Resource** metric on memory: `{type: Resource, resource: {name: memory, target: {type: Utilization, averageUtilization: 80}}}`.\n\n**Gotcha:** `kubectl autoscale` only does CPU — for memory/custom metrics you write the v2 YAML.",
+      "prompt": "In `hpa-learn`, create HPA `api-hpa` (`autoscaling/v2`) for Deployment `api`: scale on **memory** at **80%** average utilization, min **1**, max **6**.\n\nTarget: `api-hpa` → api, a Resource/memory metric at 80% Utilization, min 1, max 6.",
+      "hint": "Write the v2 YAML with `metrics: [{type: Resource, resource: {name: memory, target: {type: Utilization, averageUtilization: 80}}}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata: { name: api-hpa, namespace: hpa-learn }\nspec:\n  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: api }\n  minReplicas: 1\n  maxReplicas: 6\n  metrics:\n  - type: Resource\n    resource: { name: memory, target: { type: Utilization, averageUtilization: 80 } }\nYAML",
+      "verification": [ { "id": "1", "description": "api-hpa -> api, memory Utilization 80%, min 1, max 6", "script": "validate/c2.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "3",
+      "title": "HPA with multiple metrics",
+      "teach": "A v2 HPA can list **several** metrics — it scales to satisfy the one demanding the most replicas. Combine CPU and memory under `spec.metrics`.\n\n**Gotcha:** the HPA takes the **max** desired replicas across all metrics, not the average.",
+      "prompt": "In `hpa-learn`, create HPA `cache-hpa` for Deployment `cache` with **two** metrics — CPU at **60%** and memory at **75%** average utilization — min **2**, max **8**.\n\nTarget: `cache-hpa` → cache, both CPU(60%) and memory(75%) Resource metrics, min 2, max 8.",
+      "hint": "Two entries under `metrics:` — one `resource: {name: cpu, ...averageUtilization: 60}` and one `name: memory, ...75`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata: { name: cache-hpa, namespace: hpa-learn }\nspec:\n  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: cache }\n  minReplicas: 2\n  maxReplicas: 8\n  metrics:\n  - type: Resource\n    resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }\n  - type: Resource\n    resource: { name: memory, target: { type: Utilization, averageUtilization: 75 } }\nYAML",
+      "verification": [ { "id": "1", "description": "cache-hpa -> cache, cpu 60% + memory 75%, min 2, max 8", "script": "validate/c3.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "4",
+      "title": "Tune scaling behavior",
+      "teach": "`spec.behavior` controls how fast the HPA scales. A `scaleDown.stabilizationWindowSeconds` makes it wait before scaling in, to avoid flapping.\n\n**Gotcha:** behavior is split into `scaleUp` and `scaleDown`; the stabilization window smooths the decision over that lookback.",
+      "prompt": "In `hpa-learn`, create HPA `worker-hpa` for Deployment `worker`: CPU **50%**, min **1**, max **5**, and a **scaleDown** `stabilizationWindowSeconds` of **300**.\n\nTarget: `worker-hpa` → worker, CPU 50%, min 1, max 5, behavior.scaleDown.stabilizationWindowSeconds 300.",
+      "hint": "Add `spec.behavior: {scaleDown: {stabilizationWindowSeconds: 300}}` to the v2 HPA.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata: { name: worker-hpa, namespace: hpa-learn }\nspec:\n  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: worker }\n  minReplicas: 1\n  maxReplicas: 5\n  metrics:\n  - type: Resource\n    resource: { name: cpu, target: { type: Utilization, averageUtilization: 50 } }\n  behavior:\n    scaleDown: { stabilizationWindowSeconds: 300 }\nYAML",
+      "verification": [ { "id": "1", "description": "worker-hpa: CPU 50%, min 1, max 5, scaleDown stabilization 300", "script": "validate/c4.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "5",
+      "title": "Diagnose & fix: HPA shows <unknown>",
+      "teach": "An HPA that reports `<unknown>` for CPU can't compute utilization because the target Deployment's container has **no CPU request** — utilization is a percentage *of the request*. Add a request so the HPA has a baseline.\n\n**Gotcha:** HPA percentage metrics are relative to `requests`; without a request there's nothing to divide by.",
+      "prompt": "HPA `broke-hpa` in `hpa-learn` targets Deployment `broke` but shows `<unknown>/50%` — it can't scale. Diagnose why and fix the **Deployment** so the HPA can compute CPU utilization. Don't delete the HPA.\n\nTarget: Deployment `broke`'s container has a CPU `requests` value set.",
+      "hint": "`kubectl -n hpa-learn describe hpa broke-hpa` → `<unknown>`. The `broke` Deployment has no CPU request. Add one: `kubectl -n hpa-learn set resources deployment/broke --requests=cpu=100m`.",
+      "solution": "kubectl -n hpa-learn set resources deployment/broke --requests=cpu=100m\nkubectl -n hpa-learn get deploy broke -o jsonpath='{.spec.template.spec.containers[0].resources.requests}'",
+      "verification": [ { "id": "1", "description": "Deployment broke now sets a CPU request (HPA can compute)", "script": "validate/c5.sh", "weightage": 20 } ]
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "id": "learn-ckad-serviceaccount",
+  "name": "Learn: ServiceAccounts",
+  "category": "CKAD",
+  "type": "learn",
+  "objective": "CKAD › Application Environment, Configuration & Security. Create and wire ServiceAccounts: run a pod under one, disable token automount, attach an imagePullSecret, and project a bound token. Graded exactly.",
+  "description": "Five strict ServiceAccount practicals. Each Check shows which requirements you met and why any failed.",
+  "questions": [
+    {
+      "id": "1",
+      "title": "Create a ServiceAccount",
+      "teach": "A **ServiceAccount** is the identity pods use to talk to the API server. Create one with `kubectl create serviceaccount <name>`; every namespace also has a `default` SA.\n\n**Gotcha:** pods that don't set `serviceAccountName` use `default` — give real apps their own SA for least privilege.",
+      "prompt": "In `sa-learn`, create a ServiceAccount named `deployer`.\n\nTarget: ServiceAccount `deployer` exists in `sa-learn`.",
+      "hint": "`kubectl -n sa-learn create serviceaccount deployer`.",
+      "solution": "kubectl -n sa-learn create serviceaccount deployer\nkubectl -n sa-learn get sa deployer",
+      "setup": "setup/q0_setup.sh",
+      "verification": [ { "id": "1", "description": "ServiceAccount deployer exists", "script": "validate/c1.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "2",
+      "title": "Run a pod under a ServiceAccount",
+      "teach": "Set `spec.serviceAccountName: <sa>` on a pod to run it under that identity (RBAC then applies to that SA).\n\n**Gotcha:** it's `serviceAccountName` on the pod spec — the deprecated `serviceAccount` field still shows but don't rely on it.",
+      "prompt": "In `sa-learn`, create pod `app` (image `nginx:1.25`) that runs under ServiceAccount `deployer`.\n\nTarget: pod `app`'s `serviceAccountName` is `deployer`.",
+      "hint": "`spec.serviceAccountName: deployer`. (`kubectl run app --image=nginx:1.25 --overrides='{\"spec\":{\"serviceAccountName\":\"deployer\"}}'`.)",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: app, namespace: sa-learn }\nspec:\n  serviceAccountName: deployer\n  containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "verification": [ { "id": "1", "description": "pod app runs under serviceAccountName deployer", "script": "validate/c2.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "3",
+      "title": "Disable token automount",
+      "teach": "By default a pod gets the SA's token auto-mounted at `/var/run/secrets/...`. Set `automountServiceAccountToken: false` (on the pod or the SA) when the app doesn't call the API — reducing blast radius if compromised.\n\n**Gotcha:** the pod-level setting overrides the SA-level one.",
+      "prompt": "In `sa-learn`, create pod `locked` (image `nginx:1.25`) with **`automountServiceAccountToken: false`**.\n\nTarget: pod `locked` has `automountServiceAccountToken: false`.",
+      "hint": "`spec.automountServiceAccountToken: false` on the pod.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: locked, namespace: sa-learn }\nspec:\n  automountServiceAccountToken: false\n  containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "verification": [ { "id": "1", "description": "pod locked has automountServiceAccountToken false", "script": "validate/c3.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "4",
+      "title": "Attach an imagePullSecret to the SA",
+      "teach": "To pull from a private registry, create a `docker-registry` Secret and list it under the SA's `imagePullSecrets` — every pod using that SA then inherits it (no per-pod config).\n\n**Gotcha:** `imagePullSecrets` on the **SA** applies to all its pods; on a **pod** it applies to just that pod.",
+      "prompt": "In `sa-learn`, create a docker-registry Secret `regcred` (server `registry.example.com`, user `ci`, password `pass`), then add it as an **imagePullSecret** on ServiceAccount `deployer`.\n\nTarget: SA `deployer`'s `imagePullSecrets` includes `regcred`, and `regcred` is a dockerconfigjson Secret.",
+      "hint": "`kubectl -n sa-learn create secret docker-registry regcred --docker-server=registry.example.com --docker-username=ci --docker-password=pass`, then `kubectl -n sa-learn patch serviceaccount deployer -p '{\"imagePullSecrets\":[{\"name\":\"regcred\"}]}'`.",
+      "solution": "kubectl -n sa-learn create secret docker-registry regcred --docker-server=registry.example.com --docker-username=ci --docker-password=pass\nkubectl -n sa-learn patch serviceaccount deployer -p '{\"imagePullSecrets\":[{\"name\":\"regcred\"}]}'",
+      "verification": [ { "id": "1", "description": "SA deployer has imagePullSecret regcred (dockerconfigjson)", "script": "validate/c4.sh", "weightage": 20 } ]
+    },
+    {
+      "id": "5",
+      "title": "Project a bound token",
+      "teach": "A **projected `serviceAccountToken`** volume gives a pod a short-lived, **audience-scoped** token (modern workload identity) instead of the legacy long-lived secret token. Set `audience` and `expirationSeconds`.\n\n**Gotcha:** bound tokens auto-rotate and are scoped to an audience — far safer than a static Secret token.",
+      "prompt": "In `sa-learn`, create pod `token-pod` (image `nginx:1.25`, SA `deployer`) with a **projected volume** at `/var/run/secrets/tokens` containing a `serviceAccountToken` source: audience `vault`, expirationSeconds `3600`, path `token`.\n\nTarget: `token-pod` has a projected volume whose source is a serviceAccountToken with audience `vault` and expirationSeconds `3600`.",
+      "hint": "`volumes: [{name: tok, projected: {sources: [{serviceAccountToken: {audience: vault, expirationSeconds: 3600, path: token}}]}}]`, mounted at /var/run/secrets/tokens.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: token-pod, namespace: sa-learn }\nspec:\n  serviceAccountName: deployer\n  containers:\n  - name: web\n    image: nginx:1.25\n    volumeMounts: [ { name: tok, mountPath: /var/run/secrets/tokens } ]\n  volumes:\n  - name: tok\n    projected:\n      sources:\n      - serviceAccountToken: { audience: vault, expirationSeconds: 3600, path: token }\nYAML",
+      "verification": [ { "id": "1", "description": "token-pod projects a bound serviceAccountToken (audience vault, 3600s)", "script": "validate/c5.sh", "weightage": 20 } ]
+    }
+  ]
+}

@@ -41,7 +41,8 @@ alias kindlab="node $PWD/bin/kindlab.js"   # add to ~/.zshrc or ~/.bashrc to per
 #   — or —
 npm link                                    # installs a global `kindlab` command
 
-# 3. Create the multi-node cluster (~1–2 min the first time)
+# 3. Make sure Docker is running (Docker Desktop started, `docker info` works),
+#    then create the multi-node cluster (~1–2 min the first time)
 kindlab up
 
 # 4a. Launch the web dashboard …

@@ -166,8 +166,18 @@ function stopConflicting() {
   cap(`docker stop ${ids.join(' ')}`, 120000);
 }
 
+function dockerRunning() {
+  return cap('docker info --format "{{.ServerVersion}}" 2>/dev/null', 20000).code === 0;
+}
+
 function cmdUp() {
   ensureState();
+  if (!dockerRunning()) {
+    console.log(paint("\n  Docker isn't running — start it, then retry `kindlab up`.", 'yellow'));
+    console.log(paint('    macOS:  open -a Docker    (wait until `docker info` succeeds)', 'dim'));
+    console.log(paint('    Linux:  sudo systemctl start docker\n', 'dim'));
+    process.exit(1);
+  }
   stopConflicting();
   if (clusterExists()) { console.log(paint(`Cluster '${CLUSTER}' already up.`, 'green')); }
   else {

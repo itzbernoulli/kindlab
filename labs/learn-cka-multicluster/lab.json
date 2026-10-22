@@ -10,7 +10,7 @@
     {
       "id": "1",
       "title": "Switch context and act on the right cluster",
-      "teach": "`kubectl config use-context <name>` switches the **active context** — the cluster every later `kubectl` lands on. You have `kind-kindlab` (`$CTX`) and `kind-kindlab2` (`$CTX2`). Confirm with `kubectl config get-contexts`: the `*` marks the active one.\n\n**Gotcha:** a correct command on the wrong cluster grades wrong — this step requires `prod` on cluster2 and NOT on cluster1.",
+      "teach": "`kubectl config use-context <name>` switches the **active context** — the cluster every later `kubectl` lands on. You have `kind-kindlab` (`$CTX`) and `kind-kindlab2` (`$CTX2`). Confirm with `kubectl config get-contexts`: the `*` marks the active one.\n\n**Shell tip:** switching context stays in the *same shell*, so your `alias k` / `export do` **persist** across clusters — set them once. They only reset if you `ssh` to a node; add them to `~/.bashrc` to survive new terminal tabs.\n\n**Gotcha:** a correct command on the wrong cluster grades wrong — this step requires `prod` on cluster2 and NOT on cluster1.",
       "prompt": "Switch to the **second** cluster and create namespace `prod` **there** (`$CTX2`), not on cluster1.\n\nTarget: namespace `prod` exists on cluster2 and does NOT exist on cluster1.",
       "hint": "`kubectl config use-context kind-kindlab2` then `kubectl create namespace prod` — or one-shot: `kubectl --context kind-kindlab2 create ns prod`.",
       "solution": "kubectl config use-context kind-kindlab2\nkubectl create namespace prod\nkubectl config get-contexts   # confirm the * is on kind-kindlab2",

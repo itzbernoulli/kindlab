@@ -170,6 +170,23 @@ function dockerRunning() {
   return cap('docker info --format "{{.ServerVersion}}" 2>/dev/null', 20000).code === 0;
 }
 
+// Remove bogus flags a half-finished cluster-ops lab injected into the control-plane
+// static-pod manifests — they crash-loop the scheduler/controller-manager and block
+// pod creation cluster-wide (every lab shares one cluster). Returns the repaired files.
+function healControlPlane() {
+  const cp = `${CLUSTER}-control-plane`;
+  const fixed = [];
+  if (!clusterExists()) return fixed;
+  for (const m of ['kube-scheduler.yaml', 'kube-controller-manager.yaml', 'kube-apiserver.yaml']) {
+    const p = `/etc/kubernetes/manifests/${m}`;
+    if (cap(`docker exec ${cp} grep -q bogus ${p} 2>/dev/null`, 10000).code === 0) {
+      cap(`docker exec ${cp} sed -i '/--bogus-flag=true/d' ${p}`, 10000);
+      fixed.push(m);
+    }
+  }
+  return fixed;
+}
+
 function cmdUp() {
   ensureState();
   if (!dockerRunning()) {
@@ -251,6 +268,7 @@ function cmdStart(id, minutes) {
   requireCluster();
   const lab = getLab(id);
   if (lab.needsSecondCluster) ensureSecond();
+  if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break
   console.log(paint(`\nPreparing '${lab.name}'...`, 'cyan'));
   // run q0 (optional global setup) then each question's setup
   const setups = ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)];
@@ -277,12 +295,32 @@ function cmdStatus(id) {
   else console.log(paint(`⏱  ${id}: ${fmtDur(ex.remainingSec)} remaining  (of ${fmtDur(ex.durationSec)})`, ex.remainingSec < 300 ? 'yellow' : 'cyan'));
 }
 
+function cmdDoctor() {
+  requireCluster();
+  console.log(paint('\n  KindLab doctor — checking the cluster...', 'cyan'));
+  console.log(apiHealthy() ? paint('  ✓ API server healthy', 'green')
+                           : paint('  ⚠ API server slow/unresponsive — may be recovering; retry in ~30s', 'yellow'));
+  const fixed = healControlPlane();
+  console.log(fixed.length
+    ? paint(`  ✓ removed injected bogus flags from: ${fixed.join(', ')} — control plane recovers in ~15-30s`, 'green')
+    : paint('  ✓ no stray bogus flags in control-plane manifests', 'green'));
+  const cp = `${CLUSTER}-control-plane`;
+  for (const comp of ['kube-apiserver', 'kube-scheduler', 'kube-controller-manager', 'etcd']) {
+    const ready = cap(`KUBECONFIG=${KUBECONFIG} kubectl -n kube-system get pod ${comp}-${cp} -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null`).out.trim();
+    console.log(`    ${ready === 'true' ? paint('✓', 'green') : paint('…', 'yellow')} ${comp}: ${ready === 'true' ? 'Ready' : (ready || 'starting')}`);
+  }
+  const cordon = cap(`KUBECONFIG=${KUBECONFIG} kubectl get node ${cp} -o jsonpath='{.spec.unschedulable}' 2>/dev/null`).out.trim();
+  if (cordon === 'true') console.log(paint(`  ℹ ${cp} is cordoned — if that's not a lab step: kubectl uncordon ${cp}`, 'dim'));
+  console.log('');
+}
+
 // ---------------- learn mode ----------------
 
 function cmdLearn(id) {
   requireCluster();
   const lab = getLab(id);
   if (lab.needsSecondCluster) ensureSecond();
+  if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break
   console.log(paint(`\nPreparing lesson '${lab.name}'...`, 'cyan'));
   ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
   console.log(paint(`\n  📘 LEARN: ${lab.name}  ${paint(`[${lab.category}]`, 'gray')}`, 'bold'));
@@ -540,6 +578,7 @@ function cmdServe(port = 8080) {
         if (!clusterExists()) return sendJSON(res, { error: 'cluster down — run `kindlab up`' }, 409);
         if (lab.needsSecondCluster) ensureSecond(); else mergeKube();
         if (!apiHealthy()) return sendJSON(res, { error: 'Cluster API is not responding yet — it may be recovering from load. Wait ~30s and press Start again.' }, 503);
+        if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break so pods can schedule
         ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
         const minutes = Number(url.searchParams.get('minutes') || 0);
         clearExam(lab.id);
@@ -627,6 +666,7 @@ switch (cmd) {
   case 'down': cmdDown(); break;
   case 'cluster2': cmdCluster2(arg); break;
   case 'reset': cmdReset(); break;
+  case 'doctor': case 'heal': cmdDoctor(); break;
   case 'list': cmdList(); break;
   case 'tasks': cmdTasks(arg); break;
   case 'start': cmdStart(arg, arg2 ? Number(arg2) : 0); break;

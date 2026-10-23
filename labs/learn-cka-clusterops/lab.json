@@ -11,8 +11,8 @@
       "title": "Static pod on a worker",
       "teach": "A **static pod** is run by the **kubelet** from a manifest in `/etc/kubernetes/manifests/` on one node — the API server never schedules it. The API shows a read-only **mirror pod** named `<pod>-<node>`.\n\n**Gotcha:** the manifest must live on the node you want the pod on — write it to `$W1`, or no mirror pod appears.",
       "prompt": "On worker node `$W1`, create a static pod named `static-web` (container `web`, image `busybox:1.36`, command `sleep 3600`) by writing a manifest into `/etc/kubernetes/manifests/` on that node.\n\nTarget: the mirror pod `static-web-$W1` is `Running` in namespace `default`, with image `busybox:1.36` and command `sleep 3600`.",
-      "hint": "`docker exec -i $W1 sh -c 'cat >/etc/kubernetes/manifests/static-web.yaml <<EOF ... EOF'` with `metadata.name: static-web`. The kubelet picks it up within ~15s; check `kubectl get pod static-web-$W1 -n default`.",
-      "solution": "docker exec -i \"$W1\" sh -c 'cat >/etc/kubernetes/manifests/static-web.yaml <<EOF\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n  - name: web\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF'\nkubectl get pod static-web-\"$W1\" -n default -w",
+      "hint": "In the exam you'd `ssh <node>`; in KindLab that's `docker exec -it $W1 bash`. Then `cd /etc/kubernetes/manifests/` and create `static-web.yaml` (`vi static-web.yaml`) with a Pod named `static-web`. The kubelet forms the mirror pod `static-web-<node>` in ~15s.",
+      "solution": "# 1) shell ONTO the worker node (exam equivalent: ssh <node>)\ndocker exec -it $W1 bash\n\n# 2) now on the node: go to the static-pod dir and create the manifest (use vi in the exam)\ncd /etc/kubernetes/manifests/\ncat > static-web.yaml <<'EOF'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n  - name: web\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF\nexit\n\n# 3) back on the base machine: verify the mirror pod\nkubectl get pod static-web-$W1 -n default",
       "setup": "setup/q0_setup.sh",
       "verification": [
         {
@@ -34,8 +34,8 @@
       "title": "Repair a crash-looping control-plane component",
       "teach": "The control-plane (apiserver, scheduler, controller-manager, etcd) also runs as **static pods** from `/etc/kubernetes/manifests/` on `$CP`. A bad flag crash-loops one; fix the manifest **on the node** and the kubelet restarts it in ~15s.\n\n**Gotcha:** edit the file on the node (`docker exec`/`sed`), never `kubectl edit` — mirror pods are read-only.",
       "prompt": "Setup injected a bogus flag into the **kube-scheduler** static pod manifest on `$CP`, so the scheduler crash-loops. Fix `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` so the scheduler becomes healthy.\n\nTarget: the `kube-scheduler-$CP` pod in `kube-system` is Ready (1/1) and the bogus flag is gone.",
-      "hint": "`docker exec -i $CP grep -n bogus /etc/kubernetes/manifests/kube-scheduler.yaml` to find it, then `docker exec -i $CP sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-scheduler.yaml`. Wait ~15s.",
-      "solution": "docker exec -i \"$CP\" sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-scheduler.yaml\nkubectl -n kube-system get pod kube-scheduler-\"$CP\" -w",
+      "hint": "Shell onto the control-plane node (exam: `ssh <node>`; here `docker exec -it $CP bash`), `cd /etc/kubernetes/manifests/`, open `kube-scheduler.yaml` with `vi`, delete the `- --bogus-flag=true` line, save & exit. The kubelet restarts the static pod in ~15s.",
+      "solution": "# shell onto the control-plane node (exam equivalent: ssh <node>)\ndocker exec -it $CP bash\ncd /etc/kubernetes/manifests/\nvi kube-scheduler.yaml        # delete the line:  - --bogus-flag=true\n# (non-interactive equivalent: sed -i '/--bogus-flag=true/d' kube-scheduler.yaml)\nexit\n\n# back on base: watch it recover\nkubectl -n kube-system get pod kube-scheduler-$CP -w",
       "setup": "setup/q2_setup.sh",
       "verification": [
         {
@@ -138,8 +138,8 @@
       "title": "Diagnose & fix: a crash-looping controller-manager (no hint)",
       "teach": "When a control-plane component is unhealthy, `kubectl -n kube-system get pods` shows the crash-looping one; its logs or its manifest on `$CP` reveal the cause. Fix the manifest on the node and let the kubelet restart it.\n\n**Gotcha:** the fault is a bad flag in the manifest — no hint here; find it yourself, then confirm the pod reaches `1/1 Ready`.",
       "prompt": "Setup has broken the **kube-controller-manager** static pod on `$CP`; it is crash-looping. Diagnose the cause and fix it so the component is healthy again. Edit the manifest on the node — do not try `kubectl edit`.\n\nTarget: `kube-controller-manager-$CP` in `kube-system` is Ready (1/1).",
-      "hint": "No hint — diagnose it. Start with `kubectl -n kube-system get pods -o wide` and `docker exec -i $CP cat /etc/kubernetes/manifests/kube-controller-manager.yaml`.",
-      "solution": "# Diagnose: the manifest has a bogus flag injected under the command.\ndocker exec -i \"$CP\" grep -n 'bogus' /etc/kubernetes/manifests/kube-controller-manager.yaml\ndocker exec -i \"$CP\" sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-controller-manager.yaml\nkubectl -n kube-system get pod kube-controller-manager-\"$CP\" -w",
+      "hint": "No hint on the fault — diagnose it. Shell onto the control-plane (`docker exec -it $CP bash`), `cd /etc/kubernetes/manifests/`, read `kube-controller-manager.yaml` and remove the bad line with `vi`, save & exit.",
+      "solution": "# diagnose: a bogus flag was injected into the controller-manager manifest\ndocker exec -it $CP bash\ncd /etc/kubernetes/manifests/\ngrep -n bogus kube-controller-manager.yaml\nvi kube-controller-manager.yaml   # delete the line:  - --bogus-flag=true\n# (non-interactive: sed -i '/--bogus-flag=true/d' kube-controller-manager.yaml)\nexit\n\nkubectl -n kube-system get pod kube-controller-manager-$CP -w",
       "setup": "setup/q8_setup.sh",
       "verification": [
         {

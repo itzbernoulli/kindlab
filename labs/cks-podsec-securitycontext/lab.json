@@ -1,0 +1,95 @@
+{
+  "id": "cks-podsec-securitycontext",
+  "name": "Harden a pod with securityContext",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY pod-hardening corner harder than the exam: runAsNonRoot/runAsUser, drop-ALL capabilities, readOnlyRootFilesystem, seccomp RuntimeDefault, privilege-escalation lockdown, a fully restricted-compliant pod, Pod Security Admission (enforce + audit/warn, pinned), and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "pod-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Run as a non-root UID",
+      "teach": "Containers run as **root (UID 0)** unless told otherwise. In the container `securityContext`, `runAsNonRoot: true` makes the kubelet refuse any image resolving to UID 0, and `runAsUser: <uid>` pins a specific non-zero UID.\n\n**Gotcha:** `runAsNonRoot: true` alone won't start a root image like busybox — you must also pin a non-zero `runAsUser`.",
+      "prompt": "In namespace `cks-podsec`, create pod `secure-app` (image `busybox:1.36`, container `app`, command `sleep 3600`) whose container `securityContext` sets `runAsNonRoot: true` and `runAsUser: 1000`.\n\nTarget: container reports `runAsNonRoot=true` and `runAsUser=1000`.",
+      "hint": "Write YAML with `spec.containers[0].securityContext.runAsNonRoot: true` and `runAsUser: 1000`, then `kubectl apply -f -`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: secure-app, namespace: cks-podsec }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsNonRoot: true\n      runAsUser: 1000\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "secure-app: runAsNonRoot=true + runAsUser=1000",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Drop ALL capabilities, add one back",
+      "teach": "Linux **capabilities** slice up root's powers. The hardening pattern is drop everything, then add back only what's needed, under the container `securityContext`: `capabilities: { drop: [ALL], add: [NET_BIND_SERVICE] }`.\n\n**Gotcha:** write names **without** the `CAP_` prefix — `NET_BIND_SERVICE`, not `CAP_NET_BIND_SERVICE`.",
+      "prompt": "Create pod `cap-app` in `cks-podsec` (image `busybox:1.36`, container `app`, `sleep 3600`, `runAsUser: 1000`) that **drops ALL** capabilities and **adds** only `NET_BIND_SERVICE`.\n\nTarget: `capabilities.drop=[ALL]` and `capabilities.add=[NET_BIND_SERVICE]` exactly.",
+      "hint": "Under the container `securityContext`: `capabilities: { drop: [\"ALL\"], add: [\"NET_BIND_SERVICE\"] }`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: cap-app, namespace: cks-podsec }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsUser: 1000\n      capabilities: { drop: [\"ALL\"], add: [\"NET_BIND_SERVICE\"] }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "cap-app: drop=[ALL] and add=[NET_BIND_SERVICE]",
+          "script": "validate/c2.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Read-only root filesystem + writable scratch",
+      "teach": "`readOnlyRootFilesystem: true` (container-level) makes `/` immutable so an attacker can't drop binaries. Apps that still need scratch space get a writable volume mounted at just those paths, e.g. an `emptyDir` at `/tmp`.\n\n**Gotcha:** without a writable mount an app that writes temp files crashes (`CrashLoopBackOff`).",
+      "prompt": "Create pod `ro-app` in `cks-podsec` (image `busybox:1.36`, container `app`, `sleep 3600`, `runAsUser: 1000`) with `readOnlyRootFilesystem: true` plus an `emptyDir` volume mounted at `/tmp`.\n\nTarget: container `readOnlyRootFilesystem=true` and a `/tmp` volumeMount backed by an emptyDir.",
+      "hint": "Container `securityContext.readOnlyRootFilesystem: true`; add `volumes: [{name: tmp, emptyDir: {}}]` and `volumeMounts: [{name: tmp, mountPath: /tmp}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: ro-app, namespace: cks-podsec }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsUser: 1000\n      readOnlyRootFilesystem: true\n    volumeMounts: [ { name: tmp, mountPath: /tmp } ]\n  volumes: [ { name: tmp, emptyDir: {} } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ro-app: readOnlyRootFilesystem=true + emptyDir at /tmp",
+          "script": "validate/c3.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "seccomp RuntimeDefault",
+      "teach": "**seccomp** filters which syscalls a container may make; containers run **Unconfined** by default. `seccompProfile.type: RuntimeDefault` applies the runtime's built-in profile — the file-free way the *restricted* standard wants. It can sit at pod or container level.\n\n**Gotcha:** `type` is **case-sensitive** — `RuntimeDefault`, not `runtimedefault`.",
+      "prompt": "Create pod `seccomp-app` in `cks-podsec` (image `busybox:1.36`, container `app`, `sleep 3600`, `runAsUser: 1000`) with a **pod-level** `seccompProfile` of type `RuntimeDefault`.\n\nTarget: `spec.securityContext.seccompProfile.type=RuntimeDefault`.",
+      "hint": "Add `securityContext: { seccompProfile: { type: RuntimeDefault } }` at the pod `spec` level.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: seccomp-app, namespace: cks-podsec }\nspec:\n  securityContext:\n    seccompProfile: { type: RuntimeDefault }\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsUser: 1000\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "seccomp-app: pod seccompProfile.type=RuntimeDefault",
+          "script": "validate/c4.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Block privilege escalation",
+      "teach": "`allowPrivilegeEscalation: false` (container-level) stops a process gaining more privileges than its parent (blocks setuid/setgid escalation), and `privileged: false` keeps the container out of privileged mode. Both belong in the container `securityContext`.\n\n**Gotcha:** `allowPrivilegeEscalation` defaults to **true** when a container runs privileged or has `CAP_SYS_ADMIN` — set it explicitly to `false`.",
+      "prompt": "Create pod `noesc-app` in `cks-podsec` (image `busybox:1.36`, container `app`, `sleep 3600`, `runAsUser: 1000`) whose container `securityContext` sets `allowPrivilegeEscalation: false` and `privileged: false`.\n\nTarget: container `allowPrivilegeEscalation=false` and `privileged=false`.",
+      "hint": "Under the container `securityContext`: `allowPrivilegeEscalation: false` and `privileged: false`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: noesc-app, namespace: cks-podsec }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsUser: 1000\n      allowPrivilegeEscalation: false\n      privileged: false\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "noesc-app: allowPrivilegeEscalation=false + privileged=false",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

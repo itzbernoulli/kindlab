@@ -1,0 +1,64 @@
+{
+  "id": "cka-gw-standup",
+  "name": "Stand up a Gateway",
+  "type": "learn",
+  "objective": "CKA › Services & Networking. Drill EVERY corner of the Gateway API harder than the exam: install the CRDs, define a GatewayClass, stand up a Gateway with a named HTTP listener scoped by allowedRoutes, attach an HTTPRoute (path match + backend), add header-based matching, rewrite request headers with a filter, split traffic by weight across two backends, contrast with Ingress, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "gateway-api",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Install the Gateway API CRDs",
+      "teach": "The Gateway API isn't built into Kubernetes — it ships as **CRDs you install** from a release manifest. Until you `kubectl apply` them, the API server rejects `Gateway`/`HTTPRoute` objects.\n\n**Gotcha:** wait for the CRD to reach the **Established** condition before creating CRs — applying a CRD and its CR together can race.",
+      "prompt": "Install the Gateway API CRDs. The standard-channel manifest is staged at `/tmp/gateway-api-crds.yaml`. Apply it so the `GatewayClass`/`Gateway`/`HTTPRoute` types exist.\n\nTarget: the `gateways.gateway.networking.k8s.io` CRD is installed and reports the `Established` condition True.",
+      "hint": "`kubectl apply -f /tmp/gateway-api-crds.yaml`, then `kubectl get crd | grep gateway.networking.k8s.io`.",
+      "solution": "kubectl apply -f /tmp/gateway-api-crds.yaml\nkubectl get crd gateways.gateway.networking.k8s.io",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "gateways.gateway.networking.k8s.io CRD installed and Established",
+          "script": "validate/c1.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "GatewayClass — the infrastructure template",
+      "teach": "A **GatewayClass** is cluster-scoped and names the **controller** that implements any `Gateway` referencing it, via `spec.controllerName` (a domain-prefixed path). It's the Gateway API's analogue to `IngressClass`.\n\n**Gotcha:** `kubectl create` has **no generator** for Gateway API objects — write the YAML and `apply -f` it.",
+      "prompt": "Create a cluster-scoped `GatewayClass` named `kindlab-gc` with `spec.controllerName` exactly `kindlab.io/gateway-controller`.\n\nTarget: GatewayClass `kindlab-gc` exists with controllerName `kindlab.io/gateway-controller`.",
+      "hint": "Apply a manifest: `apiVersion: gateway.networking.k8s.io/v1`, `kind: GatewayClass`, `metadata.name: kindlab-gc`, `spec.controllerName: kindlab.io/gateway-controller`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: kindlab-gc\nspec:\n  controllerName: kindlab.io/gateway-controller\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "GatewayClass kindlab-gc exists with controllerName kindlab.io/gateway-controller",
+          "script": "validate/c2.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Gateway with a named listener + allowedRoutes",
+      "teach": "A **Gateway** is namespaced. It references a class via `spec.gatewayClassName` and declares **listeners** — each with a unique `name`, a `protocol`, and a `port`. A listener's `allowedRoutes.namespaces.from: Same` restricts which namespaces may attach routes.\n\n**Gotcha:** listener `name`s must be unique within a Gateway, and the `name` is what an HTTPRoute targets via `parentRefs[].sectionName`.",
+      "prompt": "In namespace `gw-learn`, create a `Gateway` named `web-gw` referencing class `kindlab-gc` with ONE listener: `name: http`, `protocol: HTTP`, `port: 80`, and `allowedRoutes.namespaces.from: Same`.\n\nTarget: Gateway `web-gw` in `gw-learn`, gatewayClassName `kindlab-gc`, listener named `http` protocol HTTP port 80 with allowedRoutes.namespaces.from=Same.",
+      "hint": "`spec.gatewayClassName: kindlab-gc`; `spec.listeners: [{name: http, protocol: HTTP, port: 80, allowedRoutes: {namespaces: {from: Same}}}]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: web-gw\n  namespace: gw-learn\nspec:\n  gatewayClassName: kindlab-gc\n  listeners:\n  - name: http\n    protocol: HTTP\n    port: 80\n    allowedRoutes:\n      namespaces:\n        from: Same\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Gateway web-gw: class kindlab-gc + listener http HTTP:80 allowedRoutes from=Same",
+          "script": "validate/c3.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

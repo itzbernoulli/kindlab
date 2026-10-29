@@ -1,0 +1,48 @@
+{
+  "id": "cka-gw-vs-ingress-fix",
+  "name": "Gateway vs Ingress + fix a detached route",
+  "type": "learn",
+  "objective": "CKA › Services & Networking. Drill EVERY corner of the Gateway API harder than the exam: install the CRDs, define a GatewayClass, stand up a Gateway with a named HTTP listener scoped by allowedRoutes, attach an HTTPRoute (path match + backend), add header-based matching, rewrite request headers with a filter, split traffic by weight across two backends, contrast with Ingress, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "gateway-api"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Contrast with Ingress",
+      "teach": "The Gateway API replaces **Ingress**, so express the same routing the old way. An Ingress is one resource whose `spec.rules[].http.paths[]` map a path to a `backend.service`. The fast generator is `kubectl create ingress NAME --rule=\"host/path*=svc:port\"`.\n\n**Gotcha:** a trailing `*` on the path in `--rule` → `pathType: Prefix`; without it → `Exact`.",
+      "prompt": "In `gw-learn`, create an `Ingress` named `web-ing` routing host `hello.example.com` path `/` (Prefix) to Service `hello` port `80`.\n\nTarget: Ingress web-ing in gw-learn routes host hello.example.com, path / pathType Prefix, to backend Service hello port 80.",
+      "hint": "`kubectl create ingress web-ing -n gw-learn --rule=\"hello.example.com/*=hello:80\"`.",
+      "solution": "kubectl create ingress web-ing -n gw-learn --rule=\"hello.example.com/*=hello:80\"",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Ingress web-ing: host hello.example.com, path / Prefix → hello:80",
+          "script": "validate/c8.sh",
+          "weightage": 8
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Diagnose & fix: a route that won't attach",
+      "teach": "An HTTPRoute that applies cleanly but routes nothing usually has a **bad parentRef or backend**. Check the route's `status.parents[].conditions`: `Accepted: False` (reason `NoMatchingParent`) means the `parentRefs` name/sectionName is wrong; `ResolvedRefs: False` means a backend is missing.\n\n**Gotcha:** fix the HTTPRoute's refs to match the real Gateway/Service — don't recreate the Gateway.",
+      "prompt": "HTTPRoute `broken-route` in `gw-learn` was applied but doesn't attach — its `parentRefs` names a Gateway that doesn't exist, and its `backendRefs` names a Service that doesn't exist. Diagnose and fix it IN PLACE so it attaches to Gateway `web-gw` (sectionName `http`) and forwards to the real Service `hello` on port `80`. Do not delete and recreate from scratch.\n\nTarget: broken-route parentRef web-gw/http + backendRef hello:80.",
+      "hint": "`kubectl -n gw-learn get httproute broken-route -o yaml` and read `status`. Then `kubectl -n gw-learn edit httproute broken-route`: set `parentRefs[0].name: web-gw`, `sectionName: http`, and `backendRefs[0].name: hello, port: 80`.",
+      "solution": "kubectl -n gw-learn patch httproute broken-route --type=json -p='[\n  {\"op\":\"replace\",\"path\":\"/spec/parentRefs/0/name\",\"value\":\"web-gw\"},\n  {\"op\":\"replace\",\"path\":\"/spec/parentRefs/0/sectionName\",\"value\":\"http\"},\n  {\"op\":\"replace\",\"path\":\"/spec/rules/0/backendRefs/0/name\",\"value\":\"hello\"},\n  {\"op\":\"replace\",\"path\":\"/spec/rules/0/backendRefs/0/port\",\"value\":80}\n]'",
+      "setup": "setup/q9_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "broken-route fixed: parentRef web-gw/http + backend hello:80",
+          "script": "validate/c9.sh",
+          "weightage": 6
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

@@ -1,0 +1,79 @@
+{
+  "id": "cka-gw-routing",
+  "name": "HTTPRoute matching, filters & traffic splitting",
+  "type": "learn",
+  "objective": "CKA › Services & Networking. Drill EVERY corner of the Gateway API harder than the exam: install the CRDs, define a GatewayClass, stand up a Gateway with a named HTTP listener scoped by allowedRoutes, attach an HTTPRoute (path match + backend), add header-based matching, rewrite request headers with a filter, split traffic by weight across two backends, contrast with Ingress, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "gateway-api",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "HTTPRoute — path match + backend",
+      "teach": "An **HTTPRoute** binds to a Gateway through `spec.parentRefs` and describes routing via `spec.rules` — each rule has `matches` (e.g. `path.type: PathPrefix`, `value: /`) and `backendRefs` (target Service + port). `spec.hostnames` scopes it to a host.\n\n**Gotcha:** a typo'd backend doesn't error on apply — it surfaces as `ResolvedRefs: False` in the route's status.",
+      "prompt": "In `gw-learn`, create an `HTTPRoute` named `web-route` that: attaches to Gateway `web-gw` via `parentRefs` (sectionName `http`), scopes hostname `hello.example.com`, matches path prefix `/`, and forwards to Service `hello` on port `80`. The `hello` Service (port 80) is seeded for you.\n\nTarget: web-route parentRef web-gw sectionName http, hostname hello.example.com, rule PathPrefix / → backend hello:80.",
+      "hint": "`spec.parentRefs: [{name: web-gw, sectionName: http}]`, `spec.hostnames: [hello.example.com]`, rule `matches[0].path: {type: PathPrefix, value: /}` and `backendRefs: [{name: hello, port: 80}]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: web-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    backendRefs:\n    - name: hello\n      port: 80\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-route: parentRef web-gw/http + hostname + PathPrefix / → hello:80",
+          "script": "validate/c4.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Header-based matching",
+      "teach": "A match combines `path`, `method`, `headers`, and `queryParams` — ALL conditions in one `matches` entry must hold (AND). A header match is `headers: [{type: Exact, name: X, value: Y}]`.\n\n**Gotcha:** list header matches **inside the same `matches` entry** to AND them with the path; separate `matches` entries are ORed instead.",
+      "prompt": "In `gw-learn`, create an `HTTPRoute` named `canary-route` attached to `web-gw` (sectionName `http`), hostname `hello.example.com`, with ONE rule whose single match requires BOTH path prefix `/` AND header `x-env: canary` (Exact), forwarding to Service `hello-canary` on port `80`. Both `hello` and `hello-canary` Services are seeded.\n\nTarget: canary-route one match with PathPrefix / AND Exact header x-env=canary → backend hello-canary:80.",
+      "hint": "In the single `matches` entry put both `path: {type: PathPrefix, value: /}` and `headers: [{type: Exact, name: x-env, value: canary}]`, then `backendRefs: [{name: hello-canary, port: 80}]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: canary-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n      headers:\n      - type: Exact\n        name: x-env\n        value: canary\n    backendRefs:\n    - name: hello-canary\n      port: 80\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "canary-route: one match ANDs PathPrefix / with header x-env=canary → hello-canary:80",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Request-header filter (RequestHeaderModifier)",
+      "teach": "A rule's `filters` transform traffic before it reaches the backend. `type: RequestHeaderModifier` can `set`, `add`, or `remove` request headers — `set` entries are `{name, value}` pairs.\n\n**Gotcha:** the filter goes under `rules[].filters` (the whole rule) or `backendRefs[].filters` (that backend only) — these are different scopes; use the rule level here.",
+      "prompt": "In `gw-learn`, create an `HTTPRoute` named `hdr-route` attached to `web-gw` (sectionName `http`), hostname `hello.example.com`, path prefix `/`, forwarding to `hello:80`, with a rule-level filter of type `RequestHeaderModifier` that **sets** header `x-gateway: kindlab`.\n\nTarget: hdr-route rule has filter RequestHeaderModifier set x-gateway=kindlab, backend hello:80.",
+      "hint": "Under the rule: `filters: [{type: RequestHeaderModifier, requestHeaderModifier: {set: [{name: x-gateway, value: kindlab}]}}]` alongside `backendRefs: [{name: hello, port: 80}]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: hdr-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    filters:\n    - type: RequestHeaderModifier\n      requestHeaderModifier:\n        set:\n        - name: x-gateway\n          value: kindlab\n    backendRefs:\n    - name: hello\n      port: 80\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "hdr-route: RequestHeaderModifier set x-gateway=kindlab + backend hello:80",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Traffic splitting by weight",
+      "teach": "Put **multiple `backendRefs` in one rule** and give each a `weight` to split traffic — the controller distributes requests proportionally to the weights (they need not sum to 100).\n\n**Gotcha:** weighting is per-rule across its `backendRefs`; a `weight: 0` backend receives no traffic but still resolves.",
+      "prompt": "In `gw-learn`, create an `HTTPRoute` named `split-route` attached to `web-gw` (sectionName `http`), hostname `hello.example.com`, path prefix `/`, with ONE rule that splits across two backends: `hello:80` weight `90` and `hello-canary:80` weight `10`.\n\nTarget: split-route one rule, two backendRefs — hello:80 weight 90 and hello-canary:80 weight 10.",
+      "hint": "One rule with `backendRefs: [{name: hello, port: 80, weight: 90}, {name: hello-canary, port: 80, weight: 10}]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: split-route\n  namespace: gw-learn\nspec:\n  parentRefs:\n  - name: web-gw\n    sectionName: http\n  hostnames:\n  - hello.example.com\n  rules:\n  - matches:\n    - path:\n        type: PathPrefix\n        value: /\n    backendRefs:\n    - name: hello\n      port: 80\n      weight: 90\n    - name: hello-canary\n      port: 80\n      weight: 10\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "split-route: hello:80 weight 90 + hello-canary:80 weight 10 in one rule",
+          "script": "validate/c7.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

@@ -83,3 +83,9 @@ test('sole troubleshooting lab on a topic stays on its topic shelf, appears on t
   assert.ok(!otherShelf || !otherShelf.labs.includes(tsLab),
     'tsLab should NOT be on the Other shelf');
 });
+
+test('cmdList uses byTopic by default and byCert with --cert', () => {
+  const labs = [{ id: 'a', topics: ['rbac'], certs: ['CKA'] }, { id: 'b', topics: ['rbac'], certs: ['CKA'] }];
+  assert.strictEqual(G.shelvesFor(labs, { byCert: false })[0].key, 'rbac');
+  assert.strictEqual(G.shelvesFor(labs, { byCert: true })[0].cert, 'CKA');
+});

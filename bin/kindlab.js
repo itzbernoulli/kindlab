@@ -18,6 +18,7 @@ const http = require('http');
 const ROOT = path.resolve(__dirname, '..');
 const LABS_DIR = path.join(ROOT, 'labs');
 const WEB_DIR = path.join(ROOT, 'web');
+const grouping = require('../lib/grouping');
 const STATE_DIR = path.join(ROOT, '.state');
 const KIND_CFG = path.join(ROOT, 'kind', 'cluster.yaml');
 const CLUSTER = 'kindlab';
@@ -220,16 +221,16 @@ function cmdReset() {
 
 const labType = (l) => (l.type === 'learn' ? 'learn' : 'exam');
 
-function cmdList() {
+function cmdList(opts) {
   const labs = loadLabs();
   if (!labs.length) { console.log('No labs found.'); return; }
   const row = (l) => `    ${labType(l) === 'learn' ? '📘' : '📝'} ${paint(l.id.padEnd(22), 'cyan')} ${l.name}  ${paint(`(${(l.questions || []).length} ${labType(l) === 'learn' ? 'steps' : 'tasks'})`, 'dim')}`;
-  for (const cert of ['CKAD', 'CKA', 'CKS', 'Other']) {
-    const inCert = labs.filter(l => l.category === cert);
-    if (!inCert.length) continue;
-    console.log(paint(`\n  ══ ${cert} ══`, 'bold'));
-    inCert.filter(l => labType(l) === 'learn').forEach(l => console.log(row(l)));
-    inCert.filter(l => labType(l) === 'exam').forEach(l => console.log(row(l)));
+  const shelves = grouping.shelvesFor(labs, opts || {});
+  for (const shelf of shelves) {
+    const header = shelf.label !== undefined ? shelf.label : shelf.cert;
+    console.log(paint(`\n  ══ ${header} ══`, 'bold'));
+    shelf.labs.filter(l => labType(l) === 'learn').forEach(l => console.log(row(l)));
+    shelf.labs.filter(l => labType(l) === 'exam').forEach(l => console.log(row(l)));
   }
   console.log(paint('\n  📘 learn <id> → check <id>      📝 exam <id> [min] → grade <id>\n', 'dim'));
 }
@@ -627,7 +628,7 @@ switch (cmd) {
   case 'down': cmdDown(); break;
   case 'cluster2': cmdCluster2(arg); break;
   case 'reset': cmdReset(); break;
-  case 'list': cmdList(); break;
+  case 'list': cmdList({ byCert: process.argv.includes('--cert') }); break;
   case 'tasks': cmdTasks(arg); break;
   case 'start': cmdStart(arg, arg2 ? Number(arg2) : 0); break;
   case 'exam': cmdStart(arg, arg2 ? Number(arg2) : 120); break;

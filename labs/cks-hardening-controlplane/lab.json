@@ -1,0 +1,105 @@
+{
+  "id": "cks-hardening-controlplane",
+  "name": "Harden the control plane and kubelets",
+  "type": "learn",
+  "objective": "CKS › Cluster + System Hardening (15% + 15%). Drill EVERY hardening corner harder than the exam on a real multi-node kind cluster: control-plane manifest perms, kubelet read-only port + anonymous-auth + authz mode, two apiserver admission/flag hardenings, least-privilege RBAC, ServiceAccount token hardening, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "hardening"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Harden control-plane manifest file permissions",
+      "teach": "Static pod manifests under `/etc/kubernetes/manifests/` carry sensitive flags, so CIS wants them mode `0600` (`rw-------`) and owned `root:root`. On a kind cluster each node is a container, so operate via `docker exec $CP ...` and verify with `stat -c '%a %U:%G'`.\n\n**Gotcha:** changing a manifest's mode/owner does NOT restart its pod (safe live) — only editing its *contents* does.",
+      "prompt": "The kube-scheduler static pod manifest on control-plane `$CP` was left world/group readable at mode `644`. Set `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` to exactly mode `600`, owned `root:root`.\n\nTarget: `docker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml` prints `600 root:root`.",
+      "hint": "`docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml` (it is already root:root).",
+      "solution": "docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP chown root:root /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml   # 600 root:root",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kube-scheduler.yaml is mode 600 root:root on $CP",
+          "script": "validate/q1_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Disable the kubelet read-only port",
+      "teach": "The kubelet **read-only port** (`10255`) serves pod/node metadata with no auth and no TLS. CIS requires it off: set `readOnlyPort: 0` in `/var/lib/kubelet/config.yaml`, then `systemctl restart kubelet`. Any non-zero value leaves it enabled.\n\n**Gotcha:** the edit does nothing until the kubelet restarts, and the node goes `NotReady` briefly — wait ~20s and confirm it's `Ready` again.",
+      "prompt": "On worker `$W1` the kubelet is serving its read-only port (seeded as `readOnlyPort: 10255`). Edit `/var/lib/kubelet/config.yaml` on `$W1` so `readOnlyPort: 0`, then restart the kubelet and give the node ~20s to report `Ready` again.\n\nTarget: the config on `$W1` has `readOnlyPort: 0` AND node `$W1` is `Ready`.",
+      "hint": "`docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml`, then `docker exec $W1 systemctl restart kubelet`.",
+      "solution": "docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml\ndocker exec $W1 grep readOnlyPort /var/lib/kubelet/config.yaml   # readOnlyPort: 0\ndocker exec $W1 systemctl restart kubelet\nkubectl get node $W1   # wait ~20s for Ready",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kubelet config on $W1 has readOnlyPort: 0",
+          "script": "validate/q2_s1.sh",
+          "weightage": 7
+        },
+        {
+          "id": "2",
+          "description": "node $W1 is still Ready after the kubelet restart",
+          "script": "validate/q2_s2.sh",
+          "weightage": 6
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Lock down kubelet authn/authz",
+      "teach": "An unprotected kubelet lets anyone hit its API. CIS requires `authentication.anonymous.enabled: false` and `authorization.mode: Webhook` (not blanket `AlwaysAllow`) in `/var/lib/kubelet/config.yaml`, then a kubelet restart.\n\n**Gotcha:** `anonymous.enabled` is nested under `authentication:` and `mode` under `authorization:` — edit the right blocks, not stray top-level keys.",
+      "prompt": "On worker `$W2` the kubelet was seeded insecure: `authentication.anonymous.enabled: true` and `authorization.mode: AlwaysAllow`. Edit `/var/lib/kubelet/config.yaml` on `$W2` so anonymous auth is **disabled** and the authorization mode is **Webhook**, then restart the kubelet and let `$W2` go `Ready` again.\n\nTarget: on `$W2`, `authentication.anonymous.enabled: false` AND `authorization.mode: Webhook`, and node `$W2` is `Ready`.",
+      "hint": "In `/var/lib/kubelet/config.yaml` on `$W2`, set the `enabled:` under `authentication.anonymous` to `false` and the `mode:` under `authorization` to `Webhook`; then `docker exec $W2 systemctl restart kubelet`.",
+      "solution": "docker exec $W2 sed -i 's/^\\(\\s*enabled:\\).*/\\1 false/' /var/lib/kubelet/config.yaml   # under authentication.anonymous\ndocker exec $W2 sed -i 's/^\\(\\s*mode:\\).*/\\1 Webhook/' /var/lib/kubelet/config.yaml       # under authorization\ndocker exec $W2 systemctl restart kubelet\nkubectl get node $W2   # wait ~20s for Ready",
+      "setup": "setup/q3_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kubelet on $W2: anonymous auth false + authorization mode Webhook, node Ready",
+          "script": "validate/q3_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Re-enable the NodeRestriction admission plugin",
+      "teach": "`NodeRestriction` is an apiserver **admission controller** limiting each kubelet to modifying only its own Node and the Pods bound to it. Enable it in `/etc/kubernetes/manifests/kube-apiserver.yaml` via `--enable-admission-plugins=NodeRestriction,...` — one flag, comma-separated.\n\n**Gotcha:** saving the manifest auto-restarts the apiserver; a typo takes it DOWN — wait ~20–60s for it to come back.",
+      "prompt": "Setup removed `NodeRestriction` from the apiserver's `--enable-admission-plugins`. Edit `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP` so the flag includes `NodeRestriction` again (keep any other plugins), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `NodeRestriction` in `--enable-admission-plugins`.",
+      "hint": "`docker exec $CP sed -i '/- kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml` (or append `,NodeRestriction` to an existing value). Wait ~20s for the restart.",
+      "solution": "# Setup removed the flag line, so add it back under the kube-apiserver args:\ndocker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml\n# (If the flag already exists with other plugins, instead append ,NodeRestriction to its value.)\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep enable-admission-plugins",
+      "setup": "setup/q4_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "running kube-apiserver has NodeRestriction in --enable-admission-plugins",
+          "script": "validate/q4_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Turn off apiserver profiling",
+      "teach": "The apiserver's `/debug/pprof` profiling endpoints leak internals, so CIS wants `--profiling=false` on the kube-apiserver. Add it to `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP`; saving restarts the apiserver.\n\n**Gotcha:** `--profiling` defaults to `true`, so merely omitting the flag is NOT compliant — it must be present and set to `false`.",
+      "prompt": "Harden the kube-apiserver on `$CP` by adding `--profiling=false` to its static pod manifest (`/etc/kubernetes/manifests/kube-apiserver.yaml`), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `--profiling=false` in its command args.",
+      "hint": "`docker exec $CP sed -i '/- kube-apiserver$/a\\    - --profiling=false' /etc/kubernetes/manifests/kube-apiserver.yaml`, then wait ~20s and check `kubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep profiling`.",
+      "solution": "docker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --profiling=false' /etc/kubernetes/manifests/kube-apiserver.yaml\n# wait ~20s for the apiserver to restart, then:\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep -- --profiling",
+      "setup": "setup/q5_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "running kube-apiserver has --profiling=false",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ]
+}

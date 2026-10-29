@@ -101,6 +101,15 @@ function mergeKube() {
   // so a mid-operation hiccup can never leave an EMPTY kubeconfig behind.
   const clusters = cap('kind get clusters 2>/dev/null').out.split('\n').map(s => s.trim()).filter(Boolean);
   if (!clusters.length) return;
+  // Capture each context's default namespace from the existing kubeconfig so a
+  // learner-set namespace (`kubectl config set-context <ctx> --namespace=<ns>`)
+  // survives this rebuild — otherwise it is wiped on every command that merges,
+  // making namespace-setting steps ungradable.
+  const savedNs = {};
+  if (fs.existsSync(KUBECONFIG)) {
+    const raw = cap(`KUBECONFIG=${KUBECONFIG} kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"\\t"}{.context.namespace}{"\\n"}{end}' 2>/dev/null`).out;
+    for (const line of raw.split('\n')) { const [n, ns] = line.split('\t'); if (n && ns && ns.trim()) savedNs[n.trim()] = ns.trim(); }
+  }
   const files = [];
   for (const c of clusters) { const f = path.join(STATE_DIR, `kc_${c}`); cap(`kind get kubeconfig --name ${c} > ${f}`); files.push(f); }
   const tmp = path.join(STATE_DIR, 'kubeconfig.tmp');
@@ -110,6 +119,10 @@ function mergeKube() {
     // preserve the current context if the live file already has a valid one
     const cur = fs.existsSync(KUBECONFIG) ? cap(`KUBECONFIG=${KUBECONFIG} kubectl config current-context 2>/dev/null`).out.trim() : '';
     cap(`mv ${tmp} ${KUBECONFIG}`);
+    // re-apply saved per-context namespaces onto the freshly merged kubeconfig
+    for (const [n, ns] of Object.entries(savedNs)) {
+      if (hasCtx.split('\n').includes(n)) cap(`KUBECONFIG=${KUBECONFIG} kubectl config set-context ${n} --namespace=${ns} >/dev/null 2>&1`);
+    }
     if (cur && hasCtx.split('\n').includes(cur)) cap(`KUBECONFIG=${KUBECONFIG} kubectl config use-context ${cur} >/dev/null 2>&1`);
     else cap(`KUBECONFIG=${KUBECONFIG} kubectl config use-context ${CTX} >/dev/null 2>&1`);
   }

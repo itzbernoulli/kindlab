@@ -1,0 +1,32 @@
+{
+  "id": "cka-multicluster-wrongcluster-fix",
+  "name": "Fix a Deployment on the wrong cluster",
+  "type": "learn",
+  "objective": "CKA exam-environment skill: every task names the cluster to target. Drill the whole multi-cluster surface harder than the exam — switch contexts, create on the right cluster (never the wrong one), set a context's default namespace, copy a live resource across clusters with get|apply, inspect contexts, and a no-hint diagnose-and-fix of a resource built on the WRONG cluster. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "multicluster"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a Deployment on the WRONG cluster",
+      "teach": "A classic exam slip: a resource meant for cluster2 was created on **cluster1** by mistake. Find the stray, then move it — recreate on the correct cluster and delete the stray copy.\n\n**Gotcha:** grading checks the END state — it must exist on the RIGHT cluster and be gone from the wrong one; a duplicate isn't enough.",
+      "prompt": "A Deployment `cache` (image `redis:7`, 1 replica) was supposed to live in namespace `prod` on **cluster2**, but setup put it in namespace `default` on **cluster1** instead. Fix it: `cache` must exist in `prod` on cluster2 and must NOT exist in `default` on cluster1.\n\nTarget: Deployment `cache` (redis:7) in prod on cluster2; absent from default on cluster1.",
+      "hint": "Find the stray: `kubectl --context kind-kindlab -n default get deploy cache`. Recreate on cluster2: `kubectl --context kind-kindlab2 -n prod create deployment cache --image=redis:7`, then `kubectl --context kind-kindlab -n default delete deployment cache`.",
+      "solution": "# setup left 'cache' in default on cluster1 by mistake\nkubectl --context kind-kindlab2 -n prod create deployment cache --image=redis:7 --replicas=1\nkubectl --context kind-kindlab -n default delete deployment cache\n# verify: present on cluster2, gone from cluster1\nkubectl --context kind-kindlab2 -n prod get deploy cache\nkubectl --context kind-kindlab -n default get deploy cache",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'cache' (redis:7) in prod on cluster2 and absent from default on cluster1",
+          "script": "validate/q7_s1.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true,
+  "needsSecondCluster": true
+}

@@ -1,0 +1,78 @@
+{
+  "id": "cka-rbac-sa-leastpriv",
+  "name": "ServiceAccounts & least-privilege RBAC",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY RBAC corner harder than the exam: namespaced Role vs cluster-scoped ClusterRole, binding to users and ServiceAccounts, reusing a ClusterRole inside one namespace via a RoleBinding, least-privilege with resourceNames, apiGroups for subresources, approving a CSR, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "rbac"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "ServiceAccount identity",
+      "teach": "**ServiceAccounts** are identities for workloads, not humans. You grant one permissions the same way — bind a Role to it with a RoleBinding. The CLI shortcut uses a colon: `--serviceaccount=<ns>:<name>`.\n\n**Gotcha:** in `auth can-i --as=` the SA is the full form `system:serviceaccount:<ns>:<name>`, not the short `ns:name` used on the binding flag.",
+      "prompt": "In `rbac-learn`, create a ServiceAccount `ci`, then create a RoleBinding `ci-pr` binding the existing `pod-reader` Role to it.\n\nTarget: `kubectl auth can-i list pods --as=system:serviceaccount:rbac-learn:ci -n rbac-learn` → `yes`.",
+      "hint": "`kubectl -n rbac-learn create sa ci`, then `kubectl -n rbac-learn create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci`.",
+      "solution": "kubectl -n rbac-learn create sa ci\nkubectl -n rbac-learn create rolebinding ci-pr --role=pod-reader --serviceaccount=rbac-learn:ci\nkubectl auth can-i list pods --as=system:serviceaccount:rbac-learn:ci -n rbac-learn   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ServiceAccount ci exists and is bound to pod-reader; the SA identity can list pods in rbac-learn",
+          "script": "validate/c3.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Reuse a ClusterRole inside one namespace",
+      "teach": "A **RoleBinding** can reference a **ClusterRole** instead of a Role — reusing the ClusterRole's rules but scoping the grant to the RoleBinding's **own namespace only**. (`deployments` live in the `apps` apiGroup.)\n\n**Gotcha:** the subject gets the permissions **only in that namespace**, never cluster-wide.",
+      "prompt": "In `rbac-learn`, create a ClusterRole `deploy-admin` allowing `get,list,create,update,delete` on `deployments` (apps apiGroup), then create a **RoleBinding** `dev-deploy` in `rbac-learn` that grants that ClusterRole to user `dev` (namespace-scoped reuse).\n\nTarget: `can-i create deployments --as=dev -n rbac-learn` → `yes`, but `can-i create deployments --as=dev -n default` → `no`.",
+      "hint": "`kubectl create clusterrole deploy-admin --verb=get,list,create,update,delete --resource=deployments.apps`, then `kubectl -n rbac-learn create rolebinding dev-deploy --clusterrole=deploy-admin --user=dev`.",
+      "solution": "kubectl create clusterrole deploy-admin --verb=get,list,create,update,delete --resource=deployments.apps\nkubectl -n rbac-learn create rolebinding dev-deploy --clusterrole=deploy-admin --user=dev\nkubectl auth can-i create deployments --as=dev -n rbac-learn   # -> yes\nkubectl auth can-i create deployments --as=dev -n default      # -> no",
+      "verification": [
+        {
+          "id": "1",
+          "description": "RoleBinding dev-deploy references ClusterRole deploy-admin (apps group); dev can create deployments in rbac-learn but NOT in default",
+          "script": "validate/c4.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Least privilege with resourceNames",
+      "teach": "Least privilege can go below resource level: `resourceNames` restricts a rule to **specific named objects** — e.g. `get` only `app-config`, not every ConfigMap. CLI: `--resource-name=app-config` (repeatable).\n\n**Gotcha:** `resourceNames` only works for verbs targeting a named object (`get`,`update`,`patch`,`delete`) — it can't restrict `list`, `watch`, or `create`.",
+      "prompt": "Two ConfigMaps exist in `rbac-learn`: `app-config` and `other-config`. Create a Role `cm-reader` + RoleBinding `dev-cm` so user `dev` can `get` **only** `app-config`.\n\nTarget: `can-i get configmaps/app-config --as=dev -n rbac-learn` → `yes`, but `can-i get configmaps/other-config --as=dev -n rbac-learn` → `no`.",
+      "hint": "`kubectl -n rbac-learn create role cm-reader --verb=get --resource=configmaps --resource-name=app-config`, then bind it to `dev`.",
+      "solution": "kubectl -n rbac-learn create role cm-reader --verb=get --resource=configmaps --resource-name=app-config\nkubectl -n rbac-learn create rolebinding dev-cm --role=cm-reader --user=dev\nkubectl auth can-i get configmaps/app-config  --as=dev -n rbac-learn   # -> yes\nkubectl auth can-i get configmaps/other-config --as=dev -n rbac-learn   # -> no",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Role cm-reader restricted via resourceNames; dev can get app-config but NOT other-config",
+          "script": "validate/c5.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Grant a subresource (pods/log)",
+      "teach": "Some verbs target a **subresource**, written `resource/subresource` — e.g. reading logs is `get` on `pods/log`. In a Role rule, list it under `resources` alongside (or instead of) the parent. CLI: `--resource=pods/log`.\n\n**Gotcha:** `get pods` does **not** imply `get pods/log` — the subresource is a separate rule entry.",
+      "prompt": "In `rbac-learn`, create a Role `log-reader` allowing `get` on `pods/log`, and a RoleBinding `dev-log` granting it to user `dev`.\n\nTarget: `kubectl auth can-i get pods/log --as=dev -n rbac-learn` → `yes`.",
+      "hint": "`kubectl -n rbac-learn create role log-reader --verb=get --resource=pods/log`, then `kubectl -n rbac-learn create rolebinding dev-log --role=log-reader --user=dev`.",
+      "solution": "kubectl -n rbac-learn create role log-reader --verb=get --resource=pods/log\nkubectl -n rbac-learn create rolebinding dev-log --role=log-reader --user=dev\nkubectl auth can-i get pods/log --as=dev -n rbac-learn   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Role log-reader grants get on pods/log bound to dev; dev can get pods/log",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

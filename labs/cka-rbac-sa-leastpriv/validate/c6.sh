@@ -1,6 +1,6 @@
 #!/bin/bash
 # Step 6: Role log-reader grants get on pods/log (subresource) + bound to dev.
-CAN=$(kubectl auth can-i get pods/log --as=dev -n rbac-learn 2>/dev/null)
+CAN=$(kubectl auth can-i get pods --subresource=log --as=dev -n rbac-learn 2>/dev/null)
 [ "$CAN" = "yes" ] || { echo "❌ dev cannot get pods/log (can-i='${CAN:-no}'). Create Role log-reader (--resource=pods/log) + RoleBinding dev-log to dev."; exit 1; }
 
 J=$(kubectl -n rbac-learn get role log-reader -o json 2>/dev/null); [ -z "$J" ] && { echo "❌ Role 'log-reader' not found in rbac-learn"; exit 1; }; export J

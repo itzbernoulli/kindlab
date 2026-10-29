@@ -1,0 +1,53 @@
+{
+  "id": "cks-falco-deploy",
+  "name": "Deploy Falco as a DaemonSet",
+  "type": "learn",
+  "objective": "CKS › Runtime Security (the behavioral-detection slice the exam weights heavily). Drill every Falco corner harder than the exam: deploy the DaemonSet with the right driver, confirm the per-node rollout, author a custom rule with exact macros, shape its output fields, reuse a list + macro, tune with an exception, and a no-hint diagnose-and-fix of a broken rule. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "runtime-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Deploy Falco as a DaemonSet (modern-eBPF driver)",
+      "teach": "**Falco** watches syscalls and alerts when activity matches a rule. It must see *every* node's syscalls, so it runs as a **DaemonSet** (one agent per node) — a Deployment would miss nodes. Install it with Helm from the `falcosecurity` chart repo.\n\n**Gotcha:** the driver `kind` matters — `modern-ebpf` (CO-RE, no kernel headers) vs the legacy `ebpf`/`kmod`; pick it explicitly with `--set driver.kind=`.",
+      "prompt": "Install Falco as a DaemonSet in namespace `falco`, using the **modern-eBPF** driver.\n\nTarget: a DaemonSet in namespace `falco` whose pod template runs the Falco image AND whose driver kind is `modern_ebpf`/`modern-ebpf` (visible in the `falco` ConfigMap or the pod spec).",
+      "hint": "`helm repo add falcosecurity https://falcosecurity.github.io/charts && helm repo update`, then `helm install falco falcosecurity/falco -n falco --create-namespace --set driver.kind=modern-ebpf`. Check `kubectl -n falco get ds` and `kubectl -n falco get cm falco -o yaml | grep -i modern`.",
+      "solution": "helm repo add falcosecurity https://falcosecurity.github.io/charts\nhelm repo update\nhelm install falco falcosecurity/falco --namespace falco --create-namespace \\\n  --set driver.kind=modern-ebpf\nkubectl -n falco rollout status ds/falco\nkubectl -n falco get ds,pods",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "a Falco DaemonSet exists in namespace 'falco' running the Falco image",
+          "script": "validate/q1_s1.sh",
+          "weightage": 8
+        },
+        {
+          "id": "2",
+          "description": "the install uses the modern-eBPF driver (driver.kind modern_ebpf)",
+          "script": "validate/q1_s2.sh",
+          "weightage": 6
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Confirm the per-node rollout",
+      "teach": "A DaemonSet schedules **one pod per node**, so `kubectl -n falco get ds falco` reports `DESIRED/CURRENT/READY` as **node counts**, not replica counts. `desiredNumberScheduled` should equal your node count.\n\n**Gotcha:** readiness is per-node — on a non-BTF host the modern-eBPF probe can't load, so pods schedule but never go Ready. Scheduling (desired == node count) is what's graded here.",
+      "prompt": "Confirm the Falco DaemonSet rolled out — one Falco pod scheduled on **every** node.\n\nTarget: the `falco` DaemonSet's `desiredNumberScheduled` equals the cluster node count (a pod per node). On a BTF host the pods also go Ready; on this bench the eBPF driver can't load, so scheduling is the graded signal.",
+      "hint": "`kubectl -n falco get ds falco` — `DESIRED` should equal `kubectl get nodes --no-headers | wc -l`. `kubectl -n falco get pods -o wide` shows the per-node pods (Ready only on a BTF host).",
+      "solution": "kubectl get nodes --no-headers | wc -l   # node count\nkubectl -n falco get ds falco             # DESIRED must equal node count\nkubectl -n falco get pods -o wide         # one falco-* pod per node",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Falco DaemonSet scheduled on every node (desiredNumberScheduled == node count)",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "cks-falco-rule-fix",
+  "name": "Fix a broken Falco rule",
+  "type": "learn",
+  "objective": "CKS › Runtime Security (the behavioral-detection slice the exam weights heavily). Drill every Falco corner harder than the exam: deploy the DaemonSet with the right driver, confirm the per-node rollout, author a custom rule with exact macros, shape its output fields, reuse a list + macro, tune with an exception, and a no-hint diagnose-and-fix of a broken rule. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "runtime-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a broken custom rule",
+      "teach": "Falco **refuses to load** a rules file with an error, so a single bad rule silences the whole file. Common faults: a condition referencing an **undefined macro** (a typo), or a stray `enabled: false`. Falco surfaces these as load errors — in the exam you'd read them from the pod logs, then fix the YAML.\n\n**Gotcha:** an undefined-macro typo makes Falco reject the file; fix the reference to the real macro and re-enable the rule.",
+      "prompt": "The ConfigMap `falco-custom-rules` in namespace `falco` holds a rule `Detect package mgmt in container` (key `custom_rules.yaml`) that is **broken** two ways: its condition references an undefined macro `spawned_proces` (a typo for `spawned_process`), and the rule carries `enabled: false`. Fix the ConfigMap so the rule's condition uses `spawned_process` and the rule is enabled. Do not delete the ConfigMap or the rule.\n\nTarget: in `falco-custom-rules`/`custom_rules.yaml`, the rule references `spawned_process` (no `spawned_proces` typo) and has no `enabled: false`.",
+      "hint": "`kubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'` to read it. Fix the typo `spawned_proces` → `spawned_process` and remove/flip the `enabled: false` line, then `kubectl -n falco apply`/`edit` the ConfigMap.",
+      "solution": "# Read it:\nkubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'\n# Fix: 'spawned_proces' -> 'spawned_process', drop 'enabled: false'. e.g. edit:\nkubectl -n falco edit configmap falco-custom-rules\n# resulting rule condition: spawned_process and container, no 'enabled: false'",
+      "setup": "setup/q8_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "broken rule fixed: condition uses spawned_process (no typo) and rule enabled",
+          "script": "validate/q8_s1.sh",
+          "weightage": 8
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

@@ -72,6 +72,7 @@ function materialize(sourceId) {
     fs.mkdirSync(path.join(dir, 'validate'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'setup'), { recursive: true });
     for (const f of fileCopies) {
+      if (f.optional && !fs.existsSync(f.from)) continue;
       fs.copyFileSync(f.from, path.join(dir, f.to));
     }
     fs.writeFileSync(path.join(dir, 'lab.json'), JSON.stringify(labJson, null, 2) + '\n');

@@ -42,3 +42,12 @@ test('omits troubleshooting/needsSecondCluster when not set', () => {
   assert.ok(!('troubleshooting' in labJson));
   assert.ok(!('needsSecondCluster' in labJson));
 });
+test('marks the q0 reseed-base copy optional so a source without q0_setup.sh does not force it', () => {
+  // Some labs (e.g. falco) have no global setup/q0_setup.sh — only per-question setups.
+  // The q0 base copy must be flagged optional so the driver can skip it when absent.
+  // Pick an exercise whose own setup is NOT q0 (ex7), so q0 is added only as the base.
+  const { fileCopies } = sliceLab(SRC, { id:'x', name:'N', topics:['rbac'], certs:['CKA'], exerciseIds:['7'] });
+  const q0 = fileCopies.find(f => f.to === 'setup/q0_setup.sh');
+  assert.ok(q0, 'q0 base is still listed');
+  assert.strictEqual(q0.optional, true, 'q0 base copy is marked optional');
+});

@@ -1,0 +1,62 @@
+{
+  "id": "cks-supplychain-trust",
+  "name": "Pin and trust images",
+  "type": "learn",
+  "objective": "CKS › Supply Chain Security (20%). Drill EVERY supply-chain corner harder than the exam: Trivy CVE scanning with severity gates, static manifest analysis with kubesec, digest pinning, banning :latest, ImagePullPolicy hardening, an approved-registry ValidatingAdmissionPolicy + binding, a VAP that bans :latest, and a no-hint diagnose-and-fix on a broken binding. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "supply-chain"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Pin an image by digest (@sha256:)",
+      "teach": "A tag like `:1.36` is **mutable** — the registry owner can repoint it. A **digest** (`@sha256:<64 hex>`) is the hash of the exact image content, so it is **immutable**: the kubelet pulls precisely those bytes or fails. Pin with `image: busybox@sha256:<64 hex>`.\n\n**Gotcha:** a digest is per-architecture — one copied from another arch won't pull on your node.",
+      "prompt": "In `cks-supply`, create a pod `digest-pod` (container `app`, command `sleep 3600`) whose image is pinned **by digest** — `busybox@sha256:<64-hex-digest>` (any valid busybox digest).\n\nTarget: pod `digest-pod` exists; its container image is `busybox@sha256:` followed by a 64-char hex digest (not a plain tag).",
+      "hint": "Find a digest with `crane digest busybox:1.36` or `docker buildx imagetools inspect busybox:1.36`, or reuse a known one. Set `image: busybox@sha256:<64-hex>`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: digest-pod\n  namespace: cks-supply\nspec:\n  containers:\n  - name: app\n    image: busybox@sha256:9ae97d36d26566ff84e8893c64a6dc4fe8ca6d1144bf5b87b2b85a32def253c7\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "digest-pod image pinned by busybox@sha256:<64-hex>",
+          "script": "validate/q3_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Ban :latest — pin a real version + imagePullPolicy",
+      "teach": "`:latest` floats to whatever was pushed last, so two deploys of the \"same\" image can run different code. Pin an explicit tag or digest, and set `imagePullPolicy: IfNotPresent` so a pinned tag isn't silently re-pulled and swapped.\n\n**Gotcha:** an **untagged** image (`nginx`) silently resolves to `nginx:latest` — just as bad as writing `:latest`.",
+      "prompt": "In `cks-supply`, create a **Deployment** named `web` (1 replica, container `web`) whose image is a **pinned version** — NOT `:latest`, NOT untagged. Use `nginx:1.25-alpine`, and set `imagePullPolicy: IfNotPresent` on the container.\n\nTarget: Deployment `web` exists; its container is named `web`, image carries an explicit tag (not `:latest`, not untagged) or `@sha256:`, and `imagePullPolicy: IfNotPresent`.",
+      "hint": "`kubectl create deployment web -n cks-supply --image=nginx:1.25-alpine` names the container `nginx`, not `web` — build YAML so the container is named `web`. Add `imagePullPolicy: IfNotPresent`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: cks-supply\nspec:\n  replicas: 1\n  selector: { matchLabels: { app: web } }\n  template:\n    metadata: { labels: { app: web } }\n    spec:\n      containers:\n      - name: web\n        image: nginx:1.25-alpine\n        imagePullPolicy: IfNotPresent\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment web: container 'web', pinned image (not :latest), imagePullPolicy IfNotPresent",
+          "script": "validate/q4_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Private-registry pull via imagePullSecrets",
+      "teach": "Images from a private registry need credentials: create a `kubernetes.io/dockerconfigjson` Secret with `kubectl create secret docker-registry`, then reference it under the pod spec's `imagePullSecrets`. The kubelet uses it to authenticate the pull.\n\n**Gotcha:** `imagePullSecrets` lives on the **pod spec** (`spec.imagePullSecrets`), not on the container — and the Secret must be in the same namespace as the pod.",
+      "prompt": "In `cks-supply`: (1) create a docker-registry Secret `regcred` for server `registry.internal:5000`, username `ci`, password `s3cr3t`; (2) create pod `private-pod` (image `busybox:1.36`, container `app`, `sleep 3600`) that references `regcred` under `spec.imagePullSecrets`.\n\nTarget: Secret `regcred` is type `kubernetes.io/dockerconfigjson`; pod `private-pod` lists `regcred` in `spec.imagePullSecrets`.",
+      "hint": "`kubectl -n cks-supply create secret docker-registry regcred --docker-server=registry.internal:5000 --docker-username=ci --docker-password=s3cr3t`. Then in the pod spec add `imagePullSecrets: [ { name: regcred } ]`.",
+      "solution": "kubectl -n cks-supply create secret docker-registry regcred \\\n  --docker-server=registry.internal:5000 --docker-username=ci --docker-password=s3cr3t\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: private-pod\n  namespace: cks-supply\nspec:\n  imagePullSecrets:\n  - name: regcred\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "regcred dockerconfigjson Secret + private-pod referencing it in imagePullSecrets",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

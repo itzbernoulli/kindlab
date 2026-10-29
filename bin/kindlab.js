@@ -389,7 +389,7 @@ function clearMock() { try { if (fs.existsSync(MOCK_FILE)) fs.unlinkSync(MOCK_FI
 
 function buildMockPool(cert) {
   const pool = [];
-  for (const l of loadLabs().filter(l => l.category === cert && labType(l) === 'exam')) {
+  for (const l of loadLabs().filter(l => grouping.inMockPool(l, cert))) {
     for (const q of l.questions) {
       const w = (q.verification || []).reduce((s, v) => s + Number(v.weightage), 0);
       pool.push({ lab: l.id, qid: q.id, title: q.title, prompt: q.prompt, weight: w });

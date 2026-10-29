@@ -89,3 +89,11 @@ test('cmdList uses byTopic by default and byCert with --cert', () => {
   assert.strictEqual(G.shelvesFor(labs, { byCert: false })[0].key, 'rbac');
   assert.strictEqual(G.shelvesFor(labs, { byCert: true })[0].cert, 'CKA');
 });
+
+test('mock pool membership is cert-aware (dual-cert exam feeds both)', () => {
+  const lab = { id: 'm', certs: ['CKA', 'CKAD'], type: 'exam' };
+  assert.ok(G.inMockPool(lab, 'CKA'));
+  assert.ok(G.inMockPool(lab, 'CKAD'));
+  assert.ok(!G.inMockPool({ id: 'n', certs: ['CKS'], type: 'exam' }, 'CKA'));
+  assert.ok(!G.inMockPool({ id: 'o', certs: ['CKA'], type: 'learn' }, 'CKA'));
+});

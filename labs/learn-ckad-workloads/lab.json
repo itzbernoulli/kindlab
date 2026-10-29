@@ -1,15 +1,15 @@
 {
   "id": "learn-ckad-workloads",
-  "name": "Learn: Workloads — Jobs & CronJobs",
+  "name": "Learn: Workloads \u2014 Jobs & CronJobs",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Workloads & Scheduling. Drill the controller + batch surface: a Deployment's strategy/history, Jobs (completions/parallelism/backoffLimit/activeDeadline/ttl/Indexed), CronJobs (schedule/concurrencyPolicy/startingDeadline/history/suspend), and a no-hint parallelism diagnose-fix. Graded exactly.",
+  "objective": "CKAD \u203a Workloads & Scheduling. Drill the controller + batch surface: a Deployment's strategy/history, Jobs (completions/parallelism/backoffLimit/activeDeadline/ttl/Indexed), CronJobs (schedule/concurrencyPolicy/startingDeadline/history/suspend), and a no-hint parallelism diagnose-fix. Graded exactly.",
   "description": "Eight strict batch/controller practicals. Each Check shows which requirements you met and the reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Deployment: strategy + revision history",
-      "teach": "A Deployment's `.spec.strategy.type` is `RollingUpdate` (default) or `Recreate` (kill all, then recreate — brief downtime). `.spec.revisionHistoryLimit` caps how many old ReplicaSets are kept for rollback.\n\n**Gotcha:** `Recreate` must not carry a `rollingUpdate` block.",
+      "teach": "A Deployment's `.spec.strategy.type` is `RollingUpdate` (default) or `Recreate` (kill all, then recreate \u2014 brief downtime). `.spec.revisionHistoryLimit` caps how many old ReplicaSets are kept for rollback.\n\n**Gotcha:** `Recreate` must not carry a `rollingUpdate` block.",
       "prompt": "In `workloads-learn`, create a Deployment `web` (image `nginx:1.25`, 3 replicas, label `app=web`) with strategy `Recreate` and `revisionHistoryLimit: 5`.\n\nTarget: `web` has 3 replicas, strategy.type Recreate, revisionHistoryLimit 5.",
       "hint": "Scaffold with `kubectl create deployment web --image=nginx:1.25 --replicas=3 --dry-run=client -o yaml`, then add `strategy.type: Recreate` and `revisionHistoryLimit: 5`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web, namespace: workloads-learn, labels: { app: web } }\nspec:\n  replicas: 3\n  revisionHistoryLimit: 5\n  strategy: { type: Recreate }\n  selector: { matchLabels: { app: web } }\n  template:\n    metadata: { labels: { app: web } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
@@ -42,7 +42,7 @@
     {
       "id": "3",
       "title": "Job: backoffLimit + OnFailure",
-      "teach": "`backoffLimit` is how many times a Job retries a failed pod before it's marked Failed (default 6). With `restartPolicy: OnFailure` the **container** restarts in place; with `Never` a new **pod** is created per retry.\n\n**Gotcha:** `OnFailure` restarts the container (same pod); `Never` spawns fresh pods — both count against `backoffLimit`.",
+      "teach": "`backoffLimit` is how many times a Job retries a failed pod before it's marked Failed (default 6). With `restartPolicy: OnFailure` the **container** restarts in place; with `Never` a new **pod** is created per retry.\n\n**Gotcha:** `OnFailure` restarts the container (same pod); `Never` spawns fresh pods \u2014 both count against `backoffLimit`.",
       "prompt": "In `workloads-learn`, create a Job `retry` (image `busybox:1.36`, command `sh -c 'exit 0'`) with `backoffLimit: 4` and `restartPolicy: OnFailure`.\n\nTarget: Job `retry` has backoffLimit 4 and pod restartPolicy OnFailure.",
       "hint": "`spec.backoffLimit: 4` and `spec.template.spec.restartPolicy: OnFailure`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: retry, namespace: workloads-learn }\nspec:\n  backoffLimit: 4\n  template:\n    spec:\n      restartPolicy: OnFailure\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
@@ -74,7 +74,7 @@
     {
       "id": "5",
       "title": "Indexed Job",
-      "teach": "`completionMode: Indexed` gives each of the `completions` pods a unique index (0..N-1) in `$JOB_COMPLETION_INDEX` — for partitioned/parallel work where each worker handles its slice.\n\n**Gotcha:** default `completionMode` is `NonIndexed`; Indexed needs `completions` set and each index must succeed once.",
+      "teach": "`completionMode: Indexed` gives each of the `completions` pods a unique index (0..N-1) in `$JOB_COMPLETION_INDEX` \u2014 for partitioned/parallel work where each worker handles its slice.\n\n**Gotcha:** default `completionMode` is `NonIndexed`; Indexed needs `completions` set and each index must succeed once.",
       "prompt": "In `workloads-learn`, create an **Indexed** Job `indexed` (`completionMode: Indexed`) with `completions: 4`, `parallelism: 2`, image `busybox:1.36`, command `sh -c 'exit 0'`, `restartPolicy: Never`.\n\nTarget: Job `indexed` has completionMode Indexed, completions 4, parallelism 2.",
       "hint": "`spec.completionMode: Indexed` alongside `completions: 4` and `parallelism: 2`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata: { name: indexed, namespace: workloads-learn }\nspec:\n  completionMode: Indexed\n  completions: 4\n  parallelism: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [ { name: c, image: busybox:1.36, command: [\"sh\",\"-c\",\"exit 0\"] } ]\nYAML",
@@ -122,9 +122,9 @@
     {
       "id": "8",
       "title": "Diagnose & fix: a Job that never runs",
-      "teach": "A Job stuck at **0 completions with no pods** usually has `parallelism: 0` (effectively paused) — unlike Deployments, a Job's `parallelism` is mutable, so you patch it up to resume.\n\n**Gotcha:** `kubectl describe job` shows 0 active/0 succeeded with no pod events; patch `parallelism` (not the immutable pod template) to get it moving.",
-      "prompt": "Job `stuck` in `workloads-learn` was created but **no pods run and it never completes**. Diagnose why and fix it so the Job completes. Don't delete it.\n\nTarget: Job `stuck` reaches its completions (succeeded ≥ 3).",
-      "hint": "`kubectl -n workloads-learn get job stuck` shows 0/3 with no pods; `kubectl -n workloads-learn get job stuck -o jsonpath='{.spec.parallelism}'` → 0. Patch it: `kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'`.",
+      "teach": "A Job stuck at **0 completions with no pods** usually has `parallelism: 0` (effectively paused) \u2014 unlike Deployments, a Job's `parallelism` is mutable, so you patch it up to resume.\n\n**Gotcha:** `kubectl describe job` shows 0 active/0 succeeded with no pod events; patch `parallelism` (not the immutable pod template) to get it moving.",
+      "prompt": "Job `stuck` in `workloads-learn` was created but **no pods run and it never completes**. Diagnose why and fix it so the Job completes. Don't delete it.\n\nTarget: Job `stuck` reaches its completions (succeeded \u2265 3).",
+      "hint": "`kubectl -n workloads-learn get job stuck` shows 0/3 with no pods; `kubectl -n workloads-learn get job stuck -o jsonpath='{.spec.parallelism}'` \u2192 0. Patch it: `kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'`.",
       "solution": "kubectl -n workloads-learn patch job stuck -p '{\"spec\":{\"parallelism\":2}}'\nkubectl -n workloads-learn get job stuck -w",
       "verification": [
         {
@@ -135,5 +135,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "workloads"
+  ],
+  "troubleshooting": true
 }

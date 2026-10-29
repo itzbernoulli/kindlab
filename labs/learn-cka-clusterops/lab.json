@@ -3,13 +3,13 @@
   "name": "Learn: Cluster Operations",
   "category": "CKA",
   "type": "learn",
-  "objective": "CKA › Cluster Architecture, Maintenance & Troubleshooting. Drill EVERY node-level cluster-ops corner harder than the exam: static pods and mirror pods, repairing a crash-looping control-plane component, etcd snapshot backup, node taints and labels, cordon/drain for maintenance, uncordon to return a node, and a no-hint diagnose-and-fix. Graded exactly on persistent node/cluster state via docker exec and kubectl -o json.",
+  "objective": "CKA \u203a Cluster Architecture, Maintenance & Troubleshooting. Drill EVERY node-level cluster-ops corner harder than the exam: static pods and mirror pods, repairing a crash-looping control-plane component, etcd snapshot backup, node taints and labels, cordon/drain for maintenance, uncordon to return a node, and a no-hint diagnose-and-fix. Graded exactly on persistent node/cluster state via docker exec and kubectl -o json.",
   "description": "Eight strict node-level practicals on a real multi-node kind cluster via docker exec. Node names: $CP (control-plane), $W1/$W2 (workers). Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Static pod on a worker",
-      "teach": "A **static pod** is run by the **kubelet** from a manifest in `/etc/kubernetes/manifests/` on one node — the API server never schedules it. The API shows a read-only **mirror pod** named `<pod>-<node>`.\n\n**Gotcha:** the manifest must live on the node you want the pod on — write it to `$W1`, or no mirror pod appears.",
+      "teach": "A **static pod** is run by the **kubelet** from a manifest in `/etc/kubernetes/manifests/` on one node \u2014 the API server never schedules it. The API shows a read-only **mirror pod** named `<pod>-<node>`.\n\n**Gotcha:** the manifest must live on the node you want the pod on \u2014 write it to `$W1`, or no mirror pod appears.",
       "prompt": "On worker node `$W1`, create a static pod named `static-web` (container `web`, image `busybox:1.36`, command `sleep 3600`) by writing a manifest into `/etc/kubernetes/manifests/` on that node.\n\nTarget: the mirror pod `static-web-$W1` is `Running` in namespace `default`, with image `busybox:1.36` and command `sleep 3600`.",
       "hint": "`docker exec -i $W1 sh -c 'cat >/etc/kubernetes/manifests/static-web.yaml <<EOF ... EOF'` with `metadata.name: static-web`. The kubelet picks it up within ~15s; check `kubectl get pod static-web-$W1 -n default`.",
       "solution": "docker exec -i \"$W1\" sh -c 'cat >/etc/kubernetes/manifests/static-web.yaml <<EOF\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n  - name: web\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF'\nkubectl get pod static-web-\"$W1\" -n default -w",
@@ -32,7 +32,7 @@
     {
       "id": "2",
       "title": "Repair a crash-looping control-plane component",
-      "teach": "The control-plane (apiserver, scheduler, controller-manager, etcd) also runs as **static pods** from `/etc/kubernetes/manifests/` on `$CP`. A bad flag crash-loops one; fix the manifest **on the node** and the kubelet restarts it in ~15s.\n\n**Gotcha:** edit the file on the node (`docker exec`/`sed`), never `kubectl edit` — mirror pods are read-only.",
+      "teach": "The control-plane (apiserver, scheduler, controller-manager, etcd) also runs as **static pods** from `/etc/kubernetes/manifests/` on `$CP`. A bad flag crash-loops one; fix the manifest **on the node** and the kubelet restarts it in ~15s.\n\n**Gotcha:** edit the file on the node (`docker exec`/`sed`), never `kubectl edit` \u2014 mirror pods are read-only.",
       "prompt": "Setup injected a bogus flag into the **kube-scheduler** static pod manifest on `$CP`, so the scheduler crash-loops. Fix `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` so the scheduler becomes healthy.\n\nTarget: the `kube-scheduler-$CP` pod in `kube-system` is Ready (1/1) and the bogus flag is gone.",
       "hint": "`docker exec -i $CP grep -n bogus /etc/kubernetes/manifests/kube-scheduler.yaml` to find it, then `docker exec -i $CP sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-scheduler.yaml`. Wait ~15s.",
       "solution": "docker exec -i \"$CP\" sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-scheduler.yaml\nkubectl -n kube-system get pod kube-scheduler-\"$CP\" -w",
@@ -49,7 +49,7 @@
     {
       "id": "3",
       "title": "Back up etcd",
-      "teach": "**etcd** holds all cluster state; back it up with `etcdctl snapshot save`, authenticating via the certs under `/etc/kubernetes/pki/etcd/` against `https://127.0.0.1:2379`. Save into `/var/lib/etcd` (mounted on the node), then copy the file out.\n\n**Gotcha:** the etcd image is **distroless — no shell**. Call `etcdctl` directly via `kubectl exec`; wrapping it in `sh -c '...'` fails.",
+      "teach": "**etcd** holds all cluster state; back it up with `etcdctl snapshot save`, authenticating via the certs under `/etc/kubernetes/pki/etcd/` against `https://127.0.0.1:2379`. Save into `/var/lib/etcd` (mounted on the node), then copy the file out.\n\n**Gotcha:** the etcd image is **distroless \u2014 no shell**. Call `etcdctl` directly via `kubectl exec`; wrapping it in `sh -c '...'` fails.",
       "prompt": "Take an etcd snapshot and save it to `/opt/snapshot.db` on the control-plane node `$CP`.\n\nTarget: `/opt/snapshot.db` exists on `$CP` and is a real (>1KB) etcd snapshot.",
       "hint": "`kubectl -n kube-system exec etcd-$CP -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /var/lib/etcd/snapshot.db`, then `docker exec $CP cp /var/lib/etcd/snapshot.db /opt/snapshot.db`.",
       "solution": "kubectl -n kube-system exec etcd-\"$CP\" -- etcdctl \\\n  --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /var/lib/etcd/snapshot.db\ndocker exec \"$CP\" cp /var/lib/etcd/snapshot.db /opt/snapshot.db",
@@ -71,7 +71,7 @@
     {
       "id": "4",
       "title": "Taint a node (NoSchedule)",
-      "teach": "A **taint** repels pods lacking a matching **toleration**: `kubectl taint nodes <node> key=value:effect`. `NoSchedule` blocks new pods that don't tolerate it; it is recorded in the node's `spec.taints`.\n\n**Gotcha:** a taint only affects *scheduling* of new pods — it does NOT evict already-running pods (that behavior is `NoExecute`).",
+      "teach": "A **taint** repels pods lacking a matching **toleration**: `kubectl taint nodes <node> key=value:effect`. `NoSchedule` blocks new pods that don't tolerate it; it is recorded in the node's `spec.taints`.\n\n**Gotcha:** a taint only affects *scheduling* of new pods \u2014 it does NOT evict already-running pods (that behavior is `NoExecute`).",
       "prompt": "Taint worker node `$W1` so ordinary pods won't schedule there: key `workload`, value `batch`, effect `NoSchedule`.\n\nTarget: `$W1` has a taint `workload=batch:NoSchedule` in `spec.taints`.",
       "hint": "`kubectl taint nodes $W1 workload=batch:NoSchedule`. Inspect with `kubectl get node $W1 -o jsonpath='{.spec.taints}'`.",
       "solution": "kubectl taint nodes \"$W1\" workload=batch:NoSchedule",
@@ -87,8 +87,8 @@
     {
       "id": "5",
       "title": "Cordon and drain a node",
-      "teach": "To prep a node for maintenance, `kubectl cordon` sets `spec.unschedulable=true` (no *new* pods); `kubectl drain` then evicts existing pods (and cordons automatically). Pass `--ignore-daemonsets` and `--delete-emptydir-data`.\n\n**Gotcha:** without those two flags, drain refuses — read the error, add the flag, rerun.",
-      "prompt": "Node `$W2` needs maintenance. Cordon it, then drain it (ignoring DaemonSets and deleting emptyDir data).\n\nTarget: `$W2` is cordoned — `spec.unschedulable=true` — and the drain completed.",
+      "teach": "To prep a node for maintenance, `kubectl cordon` sets `spec.unschedulable=true` (no *new* pods); `kubectl drain` then evicts existing pods (and cordons automatically). Pass `--ignore-daemonsets` and `--delete-emptydir-data`.\n\n**Gotcha:** without those two flags, drain refuses \u2014 read the error, add the flag, rerun.",
+      "prompt": "Node `$W2` needs maintenance. Cordon it, then drain it (ignoring DaemonSets and deleting emptyDir data).\n\nTarget: `$W2` is cordoned \u2014 `spec.unschedulable=true` \u2014 and the drain completed.",
       "hint": "`kubectl cordon $W2`, then `kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data`.",
       "solution": "kubectl cordon \"$W2\"\nkubectl drain \"$W2\" --ignore-daemonsets --delete-emptydir-data",
       "verification": [
@@ -103,8 +103,8 @@
     {
       "id": "6",
       "title": "Uncordon the control-plane",
-      "teach": "`kubectl uncordon <node>` reverses a cordon, setting `spec.unschedulable=false` to return the node to service. It does **not** pull back pods that drain evicted — the scheduler places *new* pods there over time.\n\n**Gotcha:** `uncordon` takes a **node** name (not a pod) and is idempotent — running it on a schedulable node is a no-op.",
-      "prompt": "The control-plane node `$CP` was cordoned for maintenance. Bring it back into service.\n\nTarget: `$CP` is schedulable again — `spec.unschedulable` is not `true`.",
+      "teach": "`kubectl uncordon <node>` reverses a cordon, setting `spec.unschedulable=false` to return the node to service. It does **not** pull back pods that drain evicted \u2014 the scheduler places *new* pods there over time.\n\n**Gotcha:** `uncordon` takes a **node** name (not a pod) and is idempotent \u2014 running it on a schedulable node is a no-op.",
+      "prompt": "The control-plane node `$CP` was cordoned for maintenance. Bring it back into service.\n\nTarget: `$CP` is schedulable again \u2014 `spec.unschedulable` is not `true`.",
       "hint": "`kubectl uncordon $CP`. Verify with `kubectl get node $CP` (no `SchedulingDisabled`).",
       "solution": "kubectl uncordon \"$CP\"",
       "setup": "setup/q6_setup.sh",
@@ -120,7 +120,7 @@
     {
       "id": "7",
       "title": "Label a node",
-      "teach": "Node **labels** are `key=value` metadata used by `nodeSelector`/affinity to steer scheduling. Add one with `kubectl label node <node> key=value`; replace an existing key with `--overwrite`.\n\n**Gotcha:** labels (`metadata.labels`, for selection) are NOT taints (`spec.taints`, for repelling) — this step wants a label.",
+      "teach": "Node **labels** are `key=value` metadata used by `nodeSelector`/affinity to steer scheduling. Add one with `kubectl label node <node> key=value`; replace an existing key with `--overwrite`.\n\n**Gotcha:** labels (`metadata.labels`, for selection) are NOT taints (`spec.taints`, for repelling) \u2014 this step wants a label.",
       "prompt": "Label worker node `$W2` with `disk=ssd` so a storage workload can target it.\n\nTarget: `$W2` has label `disk=ssd` in `metadata.labels`.",
       "hint": "`kubectl label node $W2 disk=ssd`. Check with `kubectl get node $W2 --show-labels` or `-o jsonpath='{.metadata.labels.disk}'`.",
       "solution": "kubectl label node \"$W2\" disk=ssd --overwrite",
@@ -136,9 +136,9 @@
     {
       "id": "8",
       "title": "Diagnose & fix: a crash-looping controller-manager (no hint)",
-      "teach": "When a control-plane component is unhealthy, `kubectl -n kube-system get pods` shows the crash-looping one; its logs or its manifest on `$CP` reveal the cause. Fix the manifest on the node and let the kubelet restart it.\n\n**Gotcha:** the fault is a bad flag in the manifest — no hint here; find it yourself, then confirm the pod reaches `1/1 Ready`.",
-      "prompt": "Setup has broken the **kube-controller-manager** static pod on `$CP`; it is crash-looping. Diagnose the cause and fix it so the component is healthy again. Edit the manifest on the node — do not try `kubectl edit`.\n\nTarget: `kube-controller-manager-$CP` in `kube-system` is Ready (1/1).",
-      "hint": "No hint — diagnose it. Start with `kubectl -n kube-system get pods -o wide` and `docker exec -i $CP cat /etc/kubernetes/manifests/kube-controller-manager.yaml`.",
+      "teach": "When a control-plane component is unhealthy, `kubectl -n kube-system get pods` shows the crash-looping one; its logs or its manifest on `$CP` reveal the cause. Fix the manifest on the node and let the kubelet restart it.\n\n**Gotcha:** the fault is a bad flag in the manifest \u2014 no hint here; find it yourself, then confirm the pod reaches `1/1 Ready`.",
+      "prompt": "Setup has broken the **kube-controller-manager** static pod on `$CP`; it is crash-looping. Diagnose the cause and fix it so the component is healthy again. Edit the manifest on the node \u2014 do not try `kubectl edit`.\n\nTarget: `kube-controller-manager-$CP` in `kube-system` is Ready (1/1).",
+      "hint": "No hint \u2014 diagnose it. Start with `kubectl -n kube-system get pods -o wide` and `docker exec -i $CP cat /etc/kubernetes/manifests/kube-controller-manager.yaml`.",
       "solution": "# Diagnose: the manifest has a bogus flag injected under the command.\ndocker exec -i \"$CP\" grep -n 'bogus' /etc/kubernetes/manifests/kube-controller-manager.yaml\ndocker exec -i \"$CP\" sed -i '/--bogus-flag=true/d' /etc/kubernetes/manifests/kube-controller-manager.yaml\nkubectl -n kube-system get pod kube-controller-manager-\"$CP\" -w",
       "setup": "setup/q8_setup.sh",
       "verification": [
@@ -150,5 +150,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "cluster-ops"
+  ],
+  "troubleshooting": true
 }

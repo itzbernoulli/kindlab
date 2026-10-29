@@ -3,13 +3,13 @@
   "name": "Learn: Network Policies",
   "category": "CKS",
   "type": "learn",
-  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY NetworkPolicy corner harder than the exam: default-deny ingress & egress, allow-by-pod-label, allow-by-namespace, the AND-vs-OR peer trap, port+protocol scoping, ipBlock with except, allow-DNS, and a no-hint diagnose-and-fix. Graded exactly on the policy spec, per requirement. (kindnet does not enforce policies, so grading is on the authored spec.)",
+  "objective": "CKS \u203a Minimize Microservice Vulnerabilities. Drill EVERY NetworkPolicy corner harder than the exam: default-deny ingress & egress, allow-by-pod-label, allow-by-namespace, the AND-vs-OR peer trap, port+protocol scoping, ipBlock with except, allow-DNS, and a no-hint diagnose-and-fix. Graded exactly on the policy spec, per requirement. (kindnet does not enforce policies, so grading is on the authored spec.)",
   "description": "Eight strict NetworkPolicy practicals in one namespace. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Default-deny-all ingress",
-      "teach": "A **default-deny ingress** policy isolates every pod from inbound traffic. An empty `podSelector: {}` selects all pods in the namespace, and `policyTypes: [Ingress]` with **no** `ingress` rules denies all inbound.\n\n**Gotcha:** list `Ingress` in `policyTypes` but add zero rules — any `ingress` block starts *allowing* traffic instead of denying it.",
+      "teach": "A **default-deny ingress** policy isolates every pod from inbound traffic. An empty `podSelector: {}` selects all pods in the namespace, and `policyTypes: [Ingress]` with **no** `ingress` rules denies all inbound.\n\n**Gotcha:** list `Ingress` in `policyTypes` but add zero rules \u2014 any `ingress` block starts *allowing* traffic instead of denying it.",
       "prompt": "In namespace `netpol-learn`, create a NetworkPolicy `default-deny-ingress` that selects **all** pods and denies all ingress.\n\nTarget: empty `podSelector` ({}), `policyTypes: [Ingress]`, and zero ingress rules.",
       "hint": "`spec.podSelector: {}`, `policyTypes: [Ingress]`, and omit the `ingress:` key entirely. Apply with `kubectl apply -f -`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny-ingress\n  namespace: netpol-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Ingress\nEOF",
@@ -42,7 +42,7 @@
     {
       "id": "3",
       "title": "Allow ingress from a namespace, on one port",
-      "teach": "A `from` entry with a **`namespaceSelector`** admits every pod in any namespace matching that selector. Kubernetes auto-labels each namespace `kubernetes.io/metadata.name=<name>`. Add `ports` to the same rule to restrict which port the traffic may hit.\n\n**Gotcha:** `namespaceSelector` matches namespace **labels**, not the name directly — and `{}` means *all* namespaces.",
+      "teach": "A `from` entry with a **`namespaceSelector`** admits every pod in any namespace matching that selector. Kubernetes auto-labels each namespace `kubernetes.io/metadata.name=<name>`. Add `ports` to the same rule to restrict which port the traffic may hit.\n\n**Gotcha:** `namespaceSelector` matches namespace **labels**, not the name directly \u2014 and `{}` means *all* namespaces.",
       "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-from-monitoring` that selects pods labelled `app=web` and allows ingress from **any** pod in namespace `monitoring`, but **only** on TCP port `80`.\n\nTarget: `podSelector` app=web; an ingress rule with a `from` `namespaceSelector` matching `kubernetes.io/metadata.name=monitoring` AND `ports: [{protocol: TCP, port: 80}]`.",
       "hint": "`from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } } }]` plus `ports: [{ protocol: TCP, port: 80 }]` in the SAME ingress rule.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-from-monitoring\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: monitoring\n    ports:\n    - protocol: TCP\n      port: 80\nEOF",
@@ -58,8 +58,8 @@
     {
       "id": "4",
       "title": "The AND-vs-OR peer trap",
-      "teach": "Inside one `from`/`to` list, **separate entries are OR'd**, but `namespaceSelector` and `podSelector` written as **keys of the same entry** are **AND'd** — both must match the source pod. This is the single most-tested NetworkPolicy gotcha.\n\n**Gotcha:** two list items (`- namespaceSelector` then `- podSelector`) means *this namespace OR that pod*; combine them under ONE `- ` to require both.",
-      "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-and` selecting pods labelled `app=web`, allowing ingress **only** from pods that are BOTH labelled `role=client` AND live in namespace `monitoring` (one combined peer).\n\nTarget: a single ingress `from` entry containing BOTH a `namespaceSelector` (name=monitoring) and a `podSelector` (role=client) — AND semantics, one list item.",
+      "teach": "Inside one `from`/`to` list, **separate entries are OR'd**, but `namespaceSelector` and `podSelector` written as **keys of the same entry** are **AND'd** \u2014 both must match the source pod. This is the single most-tested NetworkPolicy gotcha.\n\n**Gotcha:** two list items (`- namespaceSelector` then `- podSelector`) means *this namespace OR that pod*; combine them under ONE `- ` to require both.",
+      "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-and` selecting pods labelled `app=web`, allowing ingress **only** from pods that are BOTH labelled `role=client` AND live in namespace `monitoring` (one combined peer).\n\nTarget: a single ingress `from` entry containing BOTH a `namespaceSelector` (name=monitoring) and a `podSelector` (role=client) \u2014 AND semantics, one list item.",
       "hint": "ONE `from` list entry with two keys: `- namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}` and on the same item `podSelector: {matchLabels: {role: client}}`. Not two separate `- ` items.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-and\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: monitoring\n      podSelector:\n        matchLabels:\n          role: client\nEOF",
       "verification": [
@@ -74,7 +74,7 @@
     {
       "id": "5",
       "title": "Default-deny egress + allow DNS",
-      "teach": "Egress isolation mirrors ingress: empty `podSelector`, `policyTypes: [Egress]`, and only the egress rules you need. Blocking all egress breaks **DNS**, so you allow port 53 to `kube-system` (CoreDNS) via a `to` `namespaceSelector` plus `ports`.\n\n**Gotcha:** CoreDNS answers on port 53 over **both UDP and TCP** — list both; UDP alone fails on large responses.",
+      "teach": "Egress isolation mirrors ingress: empty `podSelector`, `policyTypes: [Egress]`, and only the egress rules you need. Blocking all egress breaks **DNS**, so you allow port 53 to `kube-system` (CoreDNS) via a `to` `namespaceSelector` plus `ports`.\n\n**Gotcha:** CoreDNS answers on port 53 over **both UDP and TCP** \u2014 list both; UDP alone fails on large responses.",
       "prompt": "In `netpol-learn`, create a NetworkPolicy `default-deny-egress-allow-dns` that selects **all** pods, is egress-isolated, and allows egress **only** to port 53 (UDP and TCP) of `kube-system`.\n\nTarget: empty `podSelector`, `policyTypes: [Egress]`, one egress rule with a `to` `namespaceSelector` matching `kube-system` and `ports` UDP/53 and TCP/53.",
       "hint": "`podSelector: {}`, `policyTypes: [Egress]`, then `egress: [{ to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } }], ports: [{protocol: UDP, port: 53},{protocol: TCP, port: 53}] }]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny-egress-allow-dns\n  namespace: netpol-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: kube-system\n    ports:\n    - protocol: UDP\n      port: 53\n    - protocol: TCP\n      port: 53\nEOF",
@@ -90,14 +90,14 @@
     {
       "id": "6",
       "title": "Restrict egress to a specific pod and port",
-      "teach": "For least privilege, pin egress to the exact destination a workload needs: a `to` `podSelector` matching the target pods plus the exact `ports`. A `to` `podSelector` alone matches destination pods **in the policy's own namespace**.\n\n**Gotcha:** this policy covers only the DB hop — the pod still needs the separate DNS allow (port 53) or name resolution breaks before it reaches the destination.",
+      "teach": "For least privilege, pin egress to the exact destination a workload needs: a `to` `podSelector` matching the target pods plus the exact `ports`. A `to` `podSelector` alone matches destination pods **in the policy's own namespace**.\n\n**Gotcha:** this policy covers only the DB hop \u2014 the pod still needs the separate DNS allow (port 53) or name resolution breaks before it reaches the destination.",
       "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-egress-to-db` that selects pods labelled `app=web` and allows egress **only** to pods labelled `app=db` on **TCP port 5432**.\n\nTarget: `podSelector` app=web; `policyTypes: [Egress]`; one egress rule with a `to` `podSelector` matching `app=db` and `ports: [{protocol: TCP, port: 5432}]`.",
       "hint": "`podSelector.matchLabels.app: web`, `egress: [{ to: [{ podSelector: { matchLabels: { app: db } } }], ports: [{ protocol: TCP, port: 5432 }] }]`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-egress-to-db\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - podSelector:\n        matchLabels:\n          app: db\n    ports:\n    - protocol: TCP\n      port: 5432\nEOF",
       "verification": [
         {
           "id": "1",
-          "description": "allow-egress-to-db: app=web → podSelector app=db on TCP/5432",
+          "description": "allow-egress-to-db: app=web \u2192 podSelector app=db on TCP/5432",
           "script": "validate/q6_s1.sh",
           "weightage": 13
         }
@@ -122,18 +122,25 @@
     {
       "id": "8",
       "title": "Diagnose & fix: a policy blocking the wrong traffic",
-      "teach": "Debugging a NetworkPolicy means reading its spec: check `podSelector` (who it applies to), `policyTypes`, and the exact `from`/`to`/`ports`. A one-field mistake — wrong label, wrong port, wrong selector kind — silently blocks the traffic you meant to allow.\n\n**Gotcha:** fix the existing policy's spec in place; a second overlapping policy only adds more allowed paths, it can't *remove* another policy's restriction.",
-      "prompt": "Policy `allow-api` in `netpol-learn` is meant to let pods labelled `app=web` receive ingress from pods labelled `role=client` on **TCP port 8080**, but it's misconfigured and blocks that traffic. Diagnose and fix it in place — do not rename or recreate from scratch.\n\nTarget end-state: `allow-api` selects `app=web`, `policyTypes: [Ingress]`, one ingress rule from `podSelector` `role=client` on `ports: [{protocol: TCP, port: 8080}]`.",
+      "teach": "Debugging a NetworkPolicy means reading its spec: check `podSelector` (who it applies to), `policyTypes`, and the exact `from`/`to`/`ports`. A one-field mistake \u2014 wrong label, wrong port, wrong selector kind \u2014 silently blocks the traffic you meant to allow.\n\n**Gotcha:** fix the existing policy's spec in place; a second overlapping policy only adds more allowed paths, it can't *remove* another policy's restriction.",
+      "prompt": "Policy `allow-api` in `netpol-learn` is meant to let pods labelled `app=web` receive ingress from pods labelled `role=client` on **TCP port 8080**, but it's misconfigured and blocks that traffic. Diagnose and fix it in place \u2014 do not rename or recreate from scratch.\n\nTarget end-state: `allow-api` selects `app=web`, `policyTypes: [Ingress]`, one ingress rule from `podSelector` `role=client` on `ports: [{protocol: TCP, port: 8080}]`.",
       "hint": "`kubectl -n netpol-learn get netpol allow-api -o yaml` and compare each field to the target: the ingress `from` podSelector and/or the port are wrong. Edit it: `kubectl -n netpol-learn edit netpol allow-api`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-api\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels:\n          role: client\n    ports:\n    - protocol: TCP\n      port: 8080\nEOF",
       "verification": [
         {
           "id": "1",
-          "description": "allow-api fixed: app=web ← podSelector role=client on TCP/8080",
+          "description": "allow-api fixed: app=web \u2190 podSelector role=client on TCP/8080",
           "script": "validate/q8_s1.sh",
           "weightage": 12
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "network-policy"
+  ],
+  "troubleshooting": true
 }

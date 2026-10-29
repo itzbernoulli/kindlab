@@ -3,13 +3,13 @@
   "name": "Learn: Ingress TLS",
   "category": "CKS",
   "type": "learn",
-  "objective": "CKS › Cluster Setup. Drill EVERY corner of terminating TLS at the Ingress harder than the exam: build a kubernetes.io/tls Secret from a self-signed cert, wire a spec.tls block, pin the backend rule, bind an ingressClassName, keep tls hosts aligned with rule hosts, rotate the cert in place under the same name, and a no-hint diagnose-and-fix on a broken Ingress. Graded exactly, per requirement.",
+  "objective": "CKS \u203a Cluster Setup. Drill EVERY corner of terminating TLS at the Ingress harder than the exam: build a kubernetes.io/tls Secret from a self-signed cert, wire a spec.tls block, pin the backend rule, bind an ingressClassName, keep tls hosts aligned with rule hosts, rotate the cert in place under the same name, and a no-hint diagnose-and-fix on a broken Ingress. Graded exactly, per requirement.",
   "description": "Seven strict practicals over one Ingress 'web' + Secret 'web-tls' (plus a broken 'shop' Ingress to repair). Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Create a kubernetes.io/tls Secret",
-      "teach": "An Ingress terminates HTTPS using a Secret of type **`kubernetes.io/tls`** holding exactly two keys: **`tls.crt`** and **`tls.key`**. The quick path is `kubectl create secret tls <name> --cert=<file> --key=<file>`, which sets the type and both keys in one shot.\n\n**Gotcha:** the API validates the pair on create — a key that doesn't match the cert is rejected.",
+      "teach": "An Ingress terminates HTTPS using a Secret of type **`kubernetes.io/tls`** holding exactly two keys: **`tls.crt`** and **`tls.key`**. The quick path is `kubectl create secret tls <name> --cert=<file> --key=<file>`, which sets the type and both keys in one shot.\n\n**Gotcha:** the API validates the pair on create \u2014 a key that doesn't match the cert is rejected.",
       "prompt": "In namespace `ingress-learn`, generate a self-signed cert + key on the host for CN `demo.example.com`, then create a TLS Secret named `web-tls` from them.\n\nTarget: Secret `web-tls` is type `kubernetes.io/tls` and has both `tls.crt` and `tls.key`, and the cert's subject CN is `demo.example.com`.",
       "hint": "`openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -days 365 -subj \"/CN=demo.example.com\"`, then `kubectl -n ingress-learn create secret tls web-tls --cert=tls.crt --key=tls.key`.",
       "solution": "openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -days 365 -subj \"/CN=demo.example.com\"\nkubectl -n ingress-learn create secret tls web-tls --cert=tls.crt --key=tls.key\nkubectl -n ingress-learn get secret web-tls -o jsonpath='{.type}'   # kubernetes.io/tls",
@@ -26,7 +26,7 @@
     {
       "id": "2",
       "title": "Add a tls block to an Ingress",
-      "teach": "An Ingress enables HTTPS via **`spec.tls`** — a list where each entry names a **`secretName`** (the `kubernetes.io/tls` Secret) and the **`hosts`** it covers. For a listed host the controller presents that Secret's cert and terminates TLS at the edge.\n\n**Gotcha:** the `secretName` Secret must live in the **same namespace** as the Ingress — a cross-namespace reference is silently ignored.",
+      "teach": "An Ingress enables HTTPS via **`spec.tls`** \u2014 a list where each entry names a **`secretName`** (the `kubernetes.io/tls` Secret) and the **`hosts`** it covers. For a listed host the controller presents that Secret's cert and terminates TLS at the edge.\n\n**Gotcha:** the `secretName` Secret must live in the **same namespace** as the Ingress \u2014 a cross-namespace reference is silently ignored.",
       "prompt": "A Deployment `web` and Service `web` (port 80) already run in `ingress-learn`. Create an Ingress named `web` with a `spec.tls` entry referencing Secret `web-tls` for host `demo.example.com` (include a rule routing that host to Service `web`:80).\n\nTarget: Ingress `web` has a `spec.tls` entry whose `secretName` is `web-tls` and whose `hosts` includes `demo.example.com`.",
       "hint": "Add `spec.tls: [{hosts: [demo.example.com], secretName: web-tls}]` to the Ingress. Author the full Ingress (rules + tls) in one manifest and `kubectl apply -f -`.",
       "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: web\n  namespace: ingress-learn\nspec:\n  ingressClassName: nginx\n  tls:\n  - hosts:\n    - demo.example.com\n    secretName: web-tls\n  rules:\n  - host: demo.example.com\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: web\n            port:\n              number: 80\nEOF",
@@ -42,7 +42,7 @@
     {
       "id": "3",
       "title": "Route the host to the backend Service",
-      "teach": "An Ingress **rule** maps a **`host`** to HTTP paths, each with a **`backend.service`** (name + port) and a `pathType` (usually `Prefix`). The rule for `demo.example.com` must point at Service `web` on port `80`.\n\n**Gotcha:** the backend port is the **Service** port (`service.port.number`), not the container's `targetPort` — mixing them routes to nothing.",
+      "teach": "An Ingress **rule** maps a **`host`** to HTTP paths, each with a **`backend.service`** (name + port) and a `pathType` (usually `Prefix`). The rule for `demo.example.com` must point at Service `web` on port `80`.\n\n**Gotcha:** the backend port is the **Service** port (`service.port.number`), not the container's `targetPort` \u2014 mixing them routes to nothing.",
       "prompt": "Ensure Ingress `web` routes host `demo.example.com` to Service `web` on port `80` with `pathType: Prefix` at path `/`.\n\nTarget: a rule with `host: demo.example.com` has a path with `pathType: Prefix`, path `/`, and `backend.service.name=web`, port `80`.",
       "hint": "Check `kubectl -n ingress-learn get ingress web -o yaml` for `spec.rules[*].host` and `spec.rules[*].http.paths[*]`. The step-2 manifest already includes this rule; re-apply if missing.",
       "solution": "kubectl -n ingress-learn get ingress web -o yaml\n# rule host demo.example.com, path / (Prefix) -> service web:80 (apply the step-2 manifest if absent)",
@@ -58,7 +58,7 @@
     {
       "id": "4",
       "title": "Bind the Ingress to an IngressClass",
-      "teach": "An Ingress is acted on by a controller only when it names one via **`spec.ingressClassName`** (e.g. `nginx`), or when a default IngressClass exists. Without a class, no controller claims it and TLS is never served.\n\n**Gotcha:** `spec.ingressClassName` is the modern field; the old `kubernetes.io/ingress.class` annotation is deprecated — set the field.",
+      "teach": "An Ingress is acted on by a controller only when it names one via **`spec.ingressClassName`** (e.g. `nginx`), or when a default IngressClass exists. Without a class, no controller claims it and TLS is never served.\n\n**Gotcha:** `spec.ingressClassName` is the modern field; the old `kubernetes.io/ingress.class` annotation is deprecated \u2014 set the field.",
       "prompt": "Make sure Ingress `web` explicitly selects the `nginx` ingress class via `spec.ingressClassName` (not the deprecated annotation).\n\nTarget: Ingress `web` has `spec.ingressClassName` equal to `nginx`.",
       "hint": "`kubectl -n ingress-learn patch ingress web --type=merge -p '{\"spec\":{\"ingressClassName\":\"nginx\"}}'`, or set `spec.ingressClassName: nginx` in the manifest.",
       "solution": "kubectl -n ingress-learn patch ingress web --type=merge -p '{\"spec\":{\"ingressClassName\":\"nginx\"}}'\nkubectl -n ingress-learn get ingress web -o jsonpath='{.spec.ingressClassName}'   # nginx",
@@ -74,8 +74,8 @@
     {
       "id": "5",
       "title": "Keep the tls hosts aligned with the rule hosts",
-      "teach": "If a host in `spec.rules` is absent from every `spec.tls.hosts`, the controller serves it over plain HTTP with no cert. Harden the Ingress so **every rule host also appears in some `spec.tls.hosts`** list — here `demo.example.com` must be in both.\n\n**Gotcha:** the cert's CN/SAN must also cover the host, or clients still get a name-mismatch warning even with TLS on.",
-      "prompt": "Harden Ingress `web`: ensure every host it routes also has TLS — i.e. every `spec.rules` host is covered by some `spec.tls[*].hosts` entry, with no mismatch.\n\nTarget: every host under `spec.rules` appears in `spec.tls[*].hosts` (no routed host is plain-HTTP-only).",
+      "teach": "If a host in `spec.rules` is absent from every `spec.tls.hosts`, the controller serves it over plain HTTP with no cert. Harden the Ingress so **every rule host also appears in some `spec.tls.hosts`** list \u2014 here `demo.example.com` must be in both.\n\n**Gotcha:** the cert's CN/SAN must also cover the host, or clients still get a name-mismatch warning even with TLS on.",
+      "prompt": "Harden Ingress `web`: ensure every host it routes also has TLS \u2014 i.e. every `spec.rules` host is covered by some `spec.tls[*].hosts` entry, with no mismatch.\n\nTarget: every host under `spec.rules` appears in `spec.tls[*].hosts` (no routed host is plain-HTTP-only).",
       "hint": "Compare `kubectl -n ingress-learn get ingress web -o jsonpath='{.spec.rules[*].host}'` with `{.spec.tls[*].hosts[*]}`. Every rule host must appear in the tls host set; re-apply a corrected manifest if one is only in rules.",
       "solution": "kubectl -n ingress-learn get ingress web -o jsonpath='{.spec.rules[*].host}{\"\\n\"}{.spec.tls[*].hosts[*]}{\"\\n\"}'\n# every rule host must also appear in a tls hosts list; fix the manifest if one is missing",
       "verification": [
@@ -90,7 +90,7 @@
     {
       "id": "6",
       "title": "Rotate the certificate in place",
-      "teach": "Because the Ingress references the Secret **by name**, you rotate a cert without touching the Ingress: replace `web-tls`'s contents under the **same name**. The clean idiom is `kubectl create secret tls web-tls --cert=... --key=... --dry-run=client -o yaml | kubectl apply -f -`.\n\n**Gotcha:** don't rename the Secret during rotation — a new name breaks the Ingress link and the controller falls back to plain HTTP.",
+      "teach": "Because the Ingress references the Secret **by name**, you rotate a cert without touching the Ingress: replace `web-tls`'s contents under the **same name**. The clean idiom is `kubectl create secret tls web-tls --cert=... --key=... --dry-run=client -o yaml | kubectl apply -f -`.\n\n**Gotcha:** don't rename the Secret during rotation \u2014 a new name breaks the Ingress link and the controller falls back to plain HTTP.",
       "prompt": "The seeded `web-tls` currently holds a stale cert whose subject CN is `old.example.com`. Rotate it: generate a NEW self-signed cert+key for CN `demo.example.com` and replace the Secret under the same name `web-tls`, leaving the Ingress reference intact.\n\nTarget: Secret `web-tls` is still `kubernetes.io/tls` with tls.crt+tls.key, its cert CN is now `demo.example.com` (not `old.example.com`), and Ingress `web` still references it in spec.tls.",
       "hint": "Regenerate with openssl (`-subj \"/CN=demo.example.com\"`), then `kubectl -n ingress-learn create secret tls web-tls --cert=tls.crt --key=tls.key --dry-run=client -o yaml | kubectl apply -f -`. Do NOT edit the Ingress.",
       "solution": "openssl req -x509 -newkey rsa:2048 -nodes -keyout tls.key -out tls.crt -days 365 -subj \"/CN=demo.example.com\"\nkubectl -n ingress-learn create secret tls web-tls --cert=tls.crt --key=tls.key --dry-run=client -o yaml | kubectl apply -f -\nkubectl -n ingress-learn get ingress web -o jsonpath='{.spec.tls[*].secretName}'   # web-tls",
@@ -107,9 +107,9 @@
     {
       "id": "7",
       "title": "Diagnose & fix: an Ingress not terminating TLS",
-      "teach": "When an HTTPS host serves the wrong (default) cert or plain HTTP, inspect the Ingress with `kubectl get ingress <n> -o yaml` and check that `spec.tls.secretName` names an **existing** Secret and that the tls `hosts` match the rule host. A `secretName` pointing at a non-existent Secret means no cert is loaded.\n\n**Gotcha:** fix the Ingress to reference the Secret that actually exists — don't invent a new Secret name.",
-      "prompt": "Ingress `shop` in `ingress-learn` should terminate TLS for host `shop.example.com` using the existing Secret `shop-tls`, but it's broken: its `spec.tls` references the wrong secret name and so no cert loads. Diagnose and fix it. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: Ingress `shop` has a `spec.tls` entry with `secretName=shop-tls` covering host `shop.example.com`, and a rule routing `shop.example.com` to Service `web`:80.",
-      "hint": "`kubectl -n ingress-learn get ingress shop -o yaml` — the `spec.tls[*].secretName` doesn't match the real Secret. List Secrets (`kubectl -n ingress-learn get secret`); the TLS one is `shop-tls`. Patch the Ingress to reference it.",
+      "teach": "When an HTTPS host serves the wrong (default) cert or plain HTTP, inspect the Ingress with `kubectl get ingress <n> -o yaml` and check that `spec.tls.secretName` names an **existing** Secret and that the tls `hosts` match the rule host. A `secretName` pointing at a non-existent Secret means no cert is loaded.\n\n**Gotcha:** fix the Ingress to reference the Secret that actually exists \u2014 don't invent a new Secret name.",
+      "prompt": "Ingress `shop` in `ingress-learn` should terminate TLS for host `shop.example.com` using the existing Secret `shop-tls`, but it's broken: its `spec.tls` references the wrong secret name and so no cert loads. Diagnose and fix it. Don't delete and rebuild from scratch \u2014 find and fix what's wrong.\n\nTarget: Ingress `shop` has a `spec.tls` entry with `secretName=shop-tls` covering host `shop.example.com`, and a rule routing `shop.example.com` to Service `web`:80.",
+      "hint": "`kubectl -n ingress-learn get ingress shop -o yaml` \u2014 the `spec.tls[*].secretName` doesn't match the real Secret. List Secrets (`kubectl -n ingress-learn get secret`); the TLS one is `shop-tls`. Patch the Ingress to reference it.",
       "solution": "# describe/get shows spec.tls.secretName points at a Secret that doesn't exist; the real one is shop-tls\nkubectl -n ingress-learn patch ingress shop --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/spec/tls/0/secretName\",\"value\":\"shop-tls\"}]'\nkubectl -n ingress-learn get ingress shop -o jsonpath='{.spec.tls[*].secretName}'   # shop-tls",
       "setup": "setup/q7_setup.sh",
       "verification": [
@@ -121,5 +121,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "networking"
+  ],
+  "troubleshooting": true
 }

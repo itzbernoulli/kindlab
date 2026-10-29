@@ -3,13 +3,13 @@
   "name": "Learn: CIS Benchmarks (kube-bench)",
   "category": "CKS",
   "type": "learn",
-  "objective": "CKS › Cluster Setup + System Hardening (10% + 15%). Drill the kube-bench workflow harder than the exam: run it as a Job against node AND master, read [PASS]/[FAIL]/[WARN], then remediate every recurring finding — manifest & PKI file modes, the kubelet read-only port, the apiserver NodeRestriction plugin — plus a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "objective": "CKS \u203a Cluster Setup + System Hardening (10% + 15%). Drill the kube-bench workflow harder than the exam: run it as a Job against node AND master, read [PASS]/[FAIL]/[WARN], then remediate every recurring finding \u2014 manifest & PKI file modes, the kubelet read-only port, the apiserver NodeRestriction plugin \u2014 plus a no-hint diagnose-and-fix. Graded exactly, per requirement.",
   "description": "Seven strict, node-level practicals on auditing a real multi-node cluster against the CIS Kubernetes Benchmark with kube-bench and remediating its findings. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Audit a worker node with kube-bench",
-      "teach": "**kube-bench** audits a node against the **CIS Kubernetes Benchmark**, printing `[PASS]`, `[FAIL]`, or `[WARN]` per numbered control. Because it inspects the host's real files, run it **on the node** — as a Job with `hostPID: true` and hostPath mounts — and read findings from the pod logs.\n\n**Gotcha:** a plain pod without `hostPID` and host mounts reads the container's filesystem, not the host, giving bogus results.",
+      "teach": "**kube-bench** audits a node against the **CIS Kubernetes Benchmark**, printing `[PASS]`, `[FAIL]`, or `[WARN]` per numbered control. Because it inspects the host's real files, run it **on the node** \u2014 as a Job with `hostPID: true` and hostPath mounts \u2014 and read findings from the pod logs.\n\n**Gotcha:** a plain pod without `hostPID` and host mounts reads the container's filesystem, not the host, giving bogus results.",
       "prompt": "In namespace `cks-bench`, create a Job named `kube-bench` using image `aquasec/kube-bench:latest` with args `[\"run\",\"--targets\",\"node\"]`, `hostPID: true`, `restartPolicy: Never`, and hostPath mounts for `/var/lib/kubelet`, `/etc/kubernetes`, and `/etc/systemd`. Wait for it to complete.\n\nTarget: Job `kube-bench` in `cks-bench` has a completed pod whose logs contain at least one of `[PASS]`, `[FAIL]`, `[WARN]`.",
       "hint": "Apply a Job with `restartPolicy: Never`, `hostPID: true`, image `aquasec/kube-bench:latest`, args `[\"run\",\"--targets\",\"node\"]`, and hostPath volumes for the three host paths. Then `kubectl -n cks-bench logs job/kube-bench | grep -E '\\[(PASS|FAIL|WARN)\\]'`.",
       "solution": "kubectl apply -f - <<'YAML'\napiVersion: batch/v1\nkind: Job\nmetadata: { name: kube-bench, namespace: cks-bench }\nspec:\n  backoffLimit: 1\n  template:\n    spec:\n      hostPID: true\n      restartPolicy: Never\n      containers:\n      - name: kube-bench\n        image: aquasec/kube-bench:latest\n        command: [\"kube-bench\"]\n        args: [\"run\",\"--targets\",\"node\"]\n        volumeMounts:\n        - { name: var-lib-kubelet, mountPath: /var/lib/kubelet, readOnly: true }\n        - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }\n        - { name: etc-systemd, mountPath: /etc/systemd, readOnly: true }\n      volumes:\n      - { name: var-lib-kubelet, hostPath: { path: /var/lib/kubelet } }\n      - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }\n      - { name: etc-systemd, hostPath: { path: /etc/systemd } }\nYAML\nkubectl -n cks-bench wait --for=condition=complete job/kube-bench --timeout=120s\nkubectl -n cks-bench logs job/kube-bench | grep -E '\\[(PASS|FAIL|WARN)\\]' | head",
@@ -26,7 +26,7 @@
     {
       "id": "2",
       "title": "Audit the control plane (--targets master)",
-      "teach": "`--targets node` only covers the kubelet/worker checks (CIS section 4). The control-plane checks (apiserver, scheduler, etcd — CIS section 1) live under `--targets master` and only appear when kube-bench runs **on a control-plane node** where those files exist.\n\n**Gotcha:** a master-targets Job landing on a worker finds no control-plane files — pin it to the control-plane node with a nodeSelector + toleration.",
+      "teach": "`--targets node` only covers the kubelet/worker checks (CIS section 4). The control-plane checks (apiserver, scheduler, etcd \u2014 CIS section 1) live under `--targets master` and only appear when kube-bench runs **on a control-plane node** where those files exist.\n\n**Gotcha:** a master-targets Job landing on a worker finds no control-plane files \u2014 pin it to the control-plane node with a nodeSelector + toleration.",
       "prompt": "In `cks-bench`, create a Job named `kube-bench-master` (`aquasec/kube-bench:latest`, args `[\"run\",\"--targets\",\"master\"]`, `hostPID: true`, `restartPolicy: Never`, same three hostPath mounts) that is pinned to the control-plane node so it can read `/etc/kubernetes/manifests`. Wait for completion.\n\nTarget: Job `kube-bench-master` completed on the control-plane node; its logs contain a CIS **1.x** master finding (e.g. `[PASS] 1.` or `[FAIL] 1.`).",
       "hint": "Add `nodeSelector: { node-role.kubernetes.io/control-plane: \"\" }` and a control-plane toleration so it lands on `$CP`. Use args `[\"run\",\"--targets\",\"master\"]`. Then `kubectl -n cks-bench logs job/kube-bench-master | grep -E '\\[(PASS|FAIL|WARN)\\] 1\\.'`.",
       "solution": "kubectl apply -f - <<'YAML'\napiVersion: batch/v1\nkind: Job\nmetadata: { name: kube-bench-master, namespace: cks-bench }\nspec:\n  backoffLimit: 1\n  template:\n    spec:\n      hostPID: true\n      restartPolicy: Never\n      nodeSelector: { node-role.kubernetes.io/control-plane: \"\" }\n      tolerations:\n      - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }\n      containers:\n      - name: kube-bench\n        image: aquasec/kube-bench:latest\n        command: [\"kube-bench\"]\n        args: [\"run\",\"--targets\",\"master\"]\n        volumeMounts:\n        - { name: var-lib-kubelet, mountPath: /var/lib/kubelet, readOnly: true }\n        - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }\n        - { name: etc-systemd, mountPath: /etc/systemd, readOnly: true }\n      volumes:\n      - { name: var-lib-kubelet, hostPath: { path: /var/lib/kubelet } }\n      - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }\n      - { name: etc-systemd, hostPath: { path: /etc/systemd } }\nYAML\nkubectl -n cks-bench wait --for=condition=complete job/kube-bench-master --timeout=120s\nkubectl -n cks-bench logs job/kube-bench-master | grep -E '\\[(PASS|FAIL|WARN)\\] 1\\.' | head",
@@ -43,7 +43,7 @@
     {
       "id": "3",
       "title": "Remediate a manifest-permission FAIL (scheduler)",
-      "teach": "A recurring master `[FAIL]` (CIS 1.1.x) is a static pod manifest under `/etc/kubernetes/manifests/` left group/world readable. CIS requires mode `0600` (`rw-------`); fix with `chmod 600 file`. Changing only the mode does NOT restart the pod, so it's safe live. On kind, reach the node with `docker exec $CP`.\n\n**Gotcha:** `stat -c '%a'` drops the leading zero so `0600` prints `600` — leaving it `640` still leaks to the group and FAILs.",
+      "teach": "A recurring master `[FAIL]` (CIS 1.1.x) is a static pod manifest under `/etc/kubernetes/manifests/` left group/world readable. CIS requires mode `0600` (`rw-------`); fix with `chmod 600 file`. Changing only the mode does NOT restart the pod, so it's safe live. On kind, reach the node with `docker exec $CP`.\n\n**Gotcha:** `stat -c '%a'` drops the leading zero so `0600` prints `600` \u2014 leaving it `640` still leaks to the group and FAILs.",
       "prompt": "kube-bench flagged the kube-scheduler manifest on control-plane node `$CP`: setup loosened it to mode `644`. Set `/etc/kubernetes/manifests/kube-scheduler.yaml` on `$CP` to exactly mode `600`.\n\nTarget: `docker exec $CP stat -c '%a' /etc/kubernetes/manifests/kube-scheduler.yaml` prints `600`.",
       "hint": "`docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml`",
       "solution": "docker exec $CP chmod 600 /etc/kubernetes/manifests/kube-scheduler.yaml\ndocker exec $CP stat -c '%a %U:%G' /etc/kubernetes/manifests/kube-scheduler.yaml   # 600 root:root",
@@ -60,7 +60,7 @@
     {
       "id": "4",
       "title": "Protect PKI private-key permissions",
-      "teach": "PKI private keys under `/etc/kubernetes/pki/` (CIS 1.1.19/1.1.21) are the crown jewels — anyone who reads `ca.key` can mint certs for any identity. kube-bench requires every `*.key` at mode `0600`. Fix with `chmod 600`; it changes only permission bits, so nothing restarts.\n\n**Gotcha:** certs (`*.crt`) are public and may stay `0644`, but a `*.key` at `640` or `660` still leaks to the group and FAILs — keys must be exactly `600`.",
+      "teach": "PKI private keys under `/etc/kubernetes/pki/` (CIS 1.1.19/1.1.21) are the crown jewels \u2014 anyone who reads `ca.key` can mint certs for any identity. kube-bench requires every `*.key` at mode `0600`. Fix with `chmod 600`; it changes only permission bits, so nothing restarts.\n\n**Gotcha:** certs (`*.crt`) are public and may stay `0644`, but a `*.key` at `640` or `660` still leaks to the group and FAILs \u2014 keys must be exactly `600`.",
       "prompt": "kube-bench flagged `/etc/kubernetes/pki/ca.key` on `$CP`: setup loosened it to mode `644`. Set it back to exactly mode `600`.\n\nTarget: `docker exec $CP stat -c '%a' /etc/kubernetes/pki/ca.key` prints `600`.",
       "hint": "`docker exec $CP chmod 600 /etc/kubernetes/pki/ca.key`",
       "solution": "docker exec $CP chmod 600 /etc/kubernetes/pki/ca.key\ndocker exec $CP stat -c '%a %U:%G' /etc/kubernetes/pki/ca.key   # 600 root:root",
@@ -77,7 +77,7 @@
     {
       "id": "5",
       "title": "Harden the kubelet (read-only port)",
-      "teach": "CIS 4.2.x: the kubelet can serve an **unauthenticated read-only port** (`10255`) that leaks pod/node metadata. kube-bench requires it disabled by setting `readOnlyPort: 0` in `/var/lib/kubelet/config.yaml`. Editing the file isn't enough — run `systemctl restart kubelet` for it to take effect.\n\n**Gotcha:** after the restart wait ~15-20s for the node to go `Ready` again; a bad edit can keep the kubelet down and leave the node `NotReady`.",
+      "teach": "CIS 4.2.x: the kubelet can serve an **unauthenticated read-only port** (`10255`) that leaks pod/node metadata. kube-bench requires it disabled by setting `readOnlyPort: 0` in `/var/lib/kubelet/config.yaml`. Editing the file isn't enough \u2014 run `systemctl restart kubelet` for it to take effect.\n\n**Gotcha:** after the restart wait ~15-20s for the node to go `Ready` again; a bad edit can keep the kubelet down and leave the node `NotReady`.",
       "prompt": "On worker `$W1` the kubelet serves its read-only port (seeded as `readOnlyPort: 10255`). Edit `/var/lib/kubelet/config.yaml` on `$W1` so `readOnlyPort: 0`, then restart the kubelet. Give the node ~20s to report `Ready`.\n\nTarget: the config on `$W1` has `readOnlyPort: 0` AND node `$W1` is `Ready`.",
       "hint": "`docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml`, then `docker exec $W1 systemctl restart kubelet`.",
       "solution": "docker exec $W1 sed -i 's/^readOnlyPort:.*/readOnlyPort: 0/' /var/lib/kubelet/config.yaml\ndocker exec $W1 grep readOnlyPort /var/lib/kubelet/config.yaml   # readOnlyPort: 0\ndocker exec $W1 systemctl restart kubelet\nkubectl get node $W1   # wait ~20s for Ready",
@@ -100,7 +100,7 @@
     {
       "id": "6",
       "title": "Harden the apiserver (NodeRestriction)",
-      "teach": "CIS 1.2.x: `NodeRestriction` is a kube-apiserver admission plugin that limits each kubelet to modifying **only its own Node and bound Pods**. Enable it in the `--enable-admission-plugins` flag — a comma-separated list, so append `,NodeRestriction` and keep the others.\n\n**Gotcha:** the kubelet recreates the pod on save (no `kubectl apply`), but a typo takes the apiserver down for ~15-30s — edit carefully and wait.",
+      "teach": "CIS 1.2.x: `NodeRestriction` is a kube-apiserver admission plugin that limits each kubelet to modifying **only its own Node and bound Pods**. Enable it in the `--enable-admission-plugins` flag \u2014 a comma-separated list, so append `,NodeRestriction` and keep the others.\n\n**Gotcha:** the kubelet recreates the pod on save (no `kubectl apply`), but a typo takes the apiserver down for ~15-30s \u2014 edit carefully and wait.",
       "prompt": "Setup removed `NodeRestriction` from the apiserver's `--enable-admission-plugins`. Edit `/etc/kubernetes/manifests/kube-apiserver.yaml` on `$CP` so the flag includes `NodeRestriction` again (keep any other plugins), then wait for the apiserver to come back.\n\nTarget: the running kube-apiserver has `NodeRestriction` in `--enable-admission-plugins`.",
       "hint": "`docker exec $CP ...` edit the manifest: add the line `- --enable-admission-plugins=NodeRestriction` under the kube-apiserver command args (or append `,NodeRestriction` to an existing value). Wait ~20s for the apiserver to restart.",
       "solution": "# Setup removed the flag line, so add it back under the kube-apiserver args:\ndocker exec $CP sed -i '/^    - kube-apiserver$/a\\    - --enable-admission-plugins=NodeRestriction' /etc/kubernetes/manifests/kube-apiserver.yaml\n# (If the flag already exists with other plugins, instead append ,NodeRestriction to its value.)\n# Wait ~20s for the apiserver to restart, then verify:\nkubectl -n kube-system get pod kube-apiserver-$CP -o yaml | grep enable-admission-plugins",
@@ -117,9 +117,9 @@
     {
       "id": "7",
       "title": "Diagnose & fix: a kube-bench kubelet-config FAIL",
-      "teach": "CIS 4.1.9 wants the kubelet config file `/var/lib/kubelet/config.yaml` at mode `0600` or stricter — it holds the kubelet's security settings. kube-bench names the file and expected mode in its `[FAIL]` line; confirm with `stat -c '%a'`.\n\n**Gotcha:** this is a `chmod`-only fix — do NOT restart the kubelet, and don't confuse the file's mode with its `readOnlyPort` content from the previous step.",
-      "prompt": "kube-bench reports a `[FAIL]` for the kubelet config file permissions on worker `$W1` — setup loosened `/var/lib/kubelet/config.yaml` to mode `644`. Diagnose which file and mode CIS expects, then fix it. No hint beyond the kube-bench output. Do NOT restart the kubelet.\n\nTarget: `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml` prints `600` (and the file still contains `readOnlyPort: 0` from the prior step).",
-      "hint": "Re-run kube-bench node (or just `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml`) — it's `644`, CIS 4.1.9 wants `600`. `docker exec $W1 chmod 600 /var/lib/kubelet/config.yaml`.",
+      "teach": "CIS 4.1.9 wants the kubelet config file `/var/lib/kubelet/config.yaml` at mode `0600` or stricter \u2014 it holds the kubelet's security settings. kube-bench names the file and expected mode in its `[FAIL]` line; confirm with `stat -c '%a'`.\n\n**Gotcha:** this is a `chmod`-only fix \u2014 do NOT restart the kubelet, and don't confuse the file's mode with its `readOnlyPort` content from the previous step.",
+      "prompt": "kube-bench reports a `[FAIL]` for the kubelet config file permissions on worker `$W1` \u2014 setup loosened `/var/lib/kubelet/config.yaml` to mode `644`. Diagnose which file and mode CIS expects, then fix it. No hint beyond the kube-bench output. Do NOT restart the kubelet.\n\nTarget: `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml` prints `600` (and the file still contains `readOnlyPort: 0` from the prior step).",
+      "hint": "Re-run kube-bench node (or just `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml`) \u2014 it's `644`, CIS 4.1.9 wants `600`. `docker exec $W1 chmod 600 /var/lib/kubelet/config.yaml`.",
       "solution": "# kube-bench 4.1.9: /var/lib/kubelet/config.yaml must be 600 or more restrictive.\ndocker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml   # 644 -> too open\ndocker exec $W1 chmod 600 /var/lib/kubelet/config.yaml\ndocker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml   # 600",
       "setup": "setup/q7_setup.sh",
       "verification": [
@@ -131,5 +131,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "hardening"
+  ],
+  "troubleshooting": true
 }

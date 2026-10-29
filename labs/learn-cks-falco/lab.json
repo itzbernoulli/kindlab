@@ -4,13 +4,13 @@
   "category": "CKS",
   "type": "learn",
   "requiresHost": true,
-  "objective": "CKS › Runtime Security (the behavioral-detection slice the exam weights heavily). Drill every Falco corner harder than the exam: deploy the DaemonSet with the right driver, confirm the per-node rollout, author a custom rule with exact macros, shape its output fields, reuse a list + macro, tune with an exception, and a no-hint diagnose-and-fix of a broken rule. Graded exactly, per requirement.",
+  "objective": "CKS \u203a Runtime Security (the behavioral-detection slice the exam weights heavily). Drill every Falco corner harder than the exam: deploy the DaemonSet with the right driver, confirm the per-node rollout, author a custom rule with exact macros, shape its output fields, reuse a list + macro, tune with an exception, and a no-hint diagnose-and-fix of a broken rule. Graded exactly, per requirement.",
   "description": "Eight strict Falco practicals. Falco runs as a DaemonSet (Helm) and its local rules live in the 'falco' ConfigMap key falco_rules.local.yaml. Live syscall capture needs a BTF kernel the bench lacks, so runtime steps are graded on the exact rule artifact. Each Check names the requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Deploy Falco as a DaemonSet (modern-eBPF driver)",
-      "teach": "**Falco** watches syscalls and alerts when activity matches a rule. It must see *every* node's syscalls, so it runs as a **DaemonSet** (one agent per node) — a Deployment would miss nodes. Install it with Helm from the `falcosecurity` chart repo.\n\n**Gotcha:** the driver `kind` matters — `modern-ebpf` (CO-RE, no kernel headers) vs the legacy `ebpf`/`kmod`; pick it explicitly with `--set driver.kind=`.",
+      "teach": "**Falco** watches syscalls and alerts when activity matches a rule. It must see *every* node's syscalls, so it runs as a **DaemonSet** (one agent per node) \u2014 a Deployment would miss nodes. Install it with Helm from the `falcosecurity` chart repo.\n\n**Gotcha:** the driver `kind` matters \u2014 `modern-ebpf` (CO-RE, no kernel headers) vs the legacy `ebpf`/`kmod`; pick it explicitly with `--set driver.kind=`.",
       "prompt": "Install Falco as a DaemonSet in namespace `falco`, using the **modern-eBPF** driver.\n\nTarget: a DaemonSet in namespace `falco` whose pod template runs the Falco image AND whose driver kind is `modern_ebpf`/`modern-ebpf` (visible in the `falco` ConfigMap or the pod spec).",
       "hint": "`helm repo add falcosecurity https://falcosecurity.github.io/charts && helm repo update`, then `helm install falco falcosecurity/falco -n falco --create-namespace --set driver.kind=modern-ebpf`. Check `kubectl -n falco get ds` and `kubectl -n falco get cm falco -o yaml | grep -i modern`.",
       "solution": "helm repo add falcosecurity https://falcosecurity.github.io/charts\nhelm repo update\nhelm install falco falcosecurity/falco --namespace falco --create-namespace \\\n  --set driver.kind=modern-ebpf\nkubectl -n falco rollout status ds/falco\nkubectl -n falco get ds,pods",
@@ -33,9 +33,9 @@
     {
       "id": "2",
       "title": "Confirm the per-node rollout",
-      "teach": "A DaemonSet schedules **one pod per node**, so `kubectl -n falco get ds falco` reports `DESIRED/CURRENT/READY` as **node counts**, not replica counts. `desiredNumberScheduled` should equal your node count.\n\n**Gotcha:** readiness is per-node — on a non-BTF host the modern-eBPF probe can't load, so pods schedule but never go Ready. Scheduling (desired == node count) is what's graded here.",
-      "prompt": "Confirm the Falco DaemonSet rolled out — one Falco pod scheduled on **every** node.\n\nTarget: the `falco` DaemonSet's `desiredNumberScheduled` equals the cluster node count (a pod per node). On a BTF host the pods also go Ready; on this bench the eBPF driver can't load, so scheduling is the graded signal.",
-      "hint": "`kubectl -n falco get ds falco` — `DESIRED` should equal `kubectl get nodes --no-headers | wc -l`. `kubectl -n falco get pods -o wide` shows the per-node pods (Ready only on a BTF host).",
+      "teach": "A DaemonSet schedules **one pod per node**, so `kubectl -n falco get ds falco` reports `DESIRED/CURRENT/READY` as **node counts**, not replica counts. `desiredNumberScheduled` should equal your node count.\n\n**Gotcha:** readiness is per-node \u2014 on a non-BTF host the modern-eBPF probe can't load, so pods schedule but never go Ready. Scheduling (desired == node count) is what's graded here.",
+      "prompt": "Confirm the Falco DaemonSet rolled out \u2014 one Falco pod scheduled on **every** node.\n\nTarget: the `falco` DaemonSet's `desiredNumberScheduled` equals the cluster node count (a pod per node). On a BTF host the pods also go Ready; on this bench the eBPF driver can't load, so scheduling is the graded signal.",
+      "hint": "`kubectl -n falco get ds falco` \u2014 `DESIRED` should equal `kubectl get nodes --no-headers | wc -l`. `kubectl -n falco get pods -o wide` shows the per-node pods (Ready only on a BTF host).",
       "solution": "kubectl get nodes --no-headers | wc -l   # node count\nkubectl -n falco get ds falco             # DESIRED must equal node count\nkubectl -n falco get pods -o wide         # one falco-* pod per node",
       "verification": [
         {
@@ -49,7 +49,7 @@
     {
       "id": "3",
       "title": "Custom rule: shell in a container (exact macros)",
-      "teach": "A Falco `- rule:` needs `rule:`, `desc:`, `condition:`, `output:`, `priority:`. Reuse Falco's **macros** in the condition: `spawned_process` (an exec), `container` (in a container), `shell_procs` (bash/sh/zsh). Put custom rules in **`falco_rules.local.yaml`** (the `falco` ConfigMap key), never the shipped `falco_rules.yaml`.\n\n**Gotcha:** name it exactly `Terminal shell in container` and set `priority: WARNING` — the grader checks both.",
+      "teach": "A Falco `- rule:` needs `rule:`, `desc:`, `condition:`, `output:`, `priority:`. Reuse Falco's **macros** in the condition: `spawned_process` (an exec), `container` (in a container), `shell_procs` (bash/sh/zsh). Put custom rules in **`falco_rules.local.yaml`** (the `falco` ConfigMap key), never the shipped `falco_rules.yaml`.\n\n**Gotcha:** name it exactly `Terminal shell in container` and set `priority: WARNING` \u2014 the grader checks both.",
       "prompt": "Add a custom rule named exactly `Terminal shell in container` to the `falco` ConfigMap's `falco_rules.local.yaml`. Its `condition` must reference `spawned_process`, `container`, and `shell_procs`, and its `priority` must be `WARNING`.\n\nTarget: that rule block exists with the three macros in its condition and priority WARNING.",
       "hint": "Edit the ConfigMap key `falco_rules.local.yaml`:\n```\n- rule: Terminal shell in container\n  desc: A shell was spawned in a container\n  condition: spawned_process and container and shell_procs\n  output: \"shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\n  priority: WARNING\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Edit the 'falco' ConfigMap, under data.falco_rules.local.yaml, append:\ncat <<'EOF'\n- rule: Terminal shell in container\n  desc: A shell was spawned in a container\n  condition: spawned_process and container and shell_procs\n  output: \"shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\n  priority: WARNING\nEOF\nkubectl -n falco rollout restart ds/falco",
@@ -65,7 +65,7 @@
     {
       "id": "4",
       "title": "Shape the alert output fields",
-      "teach": "An alert is only useful if the **`output:`** string carries context. Falco interpolates `%`-fields: `%user.name` (who), `%container.id`/`%container.name` (where), `%proc.cmdline` (what ran), `%evt.time` (when). You compose them into a human-readable line.\n\n**Gotcha:** fields are prefixed with `%` and must be spelled exactly — a typo like `%proc.cmd` silently renders as the literal text, not the value.",
+      "teach": "An alert is only useful if the **`output:`** string carries context. Falco interpolates `%`-fields: `%user.name` (who), `%container.id`/`%container.name` (where), `%proc.cmdline` (what ran), `%evt.time` (when). You compose them into a human-readable line.\n\n**Gotcha:** fields are prefixed with `%` and must be spelled exactly \u2014 a typo like `%proc.cmd` silently renders as the literal text, not the value.",
       "prompt": "Make the `Terminal shell in container` rule's `output:` carry full context: it must include the fields `%user.name`, `%container.id`, and `%proc.cmdline`.\n\nTarget: the rule's `output` string references all three of `%user.name`, `%container.id`, and `%proc.cmdline`.",
       "hint": "Set the rule's `output:` to e.g. `\"Shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"`. Keep the `%` prefix and exact field names.",
       "solution": "# In the same rule, ensure output references all three fields:\n#   output: \"Shell in container (user=%user.name container=%container.id cmd=%proc.cmdline)\"\nkubectl -n falco rollout restart ds/falco",
@@ -81,7 +81,7 @@
     {
       "id": "5",
       "title": "Reuse a list + macro",
-      "teach": "Falco lets you factor conditions: a **`- list:`** is a named set of values (`items: [a, b]`) and a **`- macro:`** is a named reusable `condition:`. You reference a list with `in (list_name)` and a macro by name. This keeps rules DRY and readable.\n\n**Gotcha:** a list is referenced as `field in (list_name)` — the parentheses are required; writing `field in list_name` is a syntax error.",
+      "teach": "Falco lets you factor conditions: a **`- list:`** is a named set of values (`items: [a, b]`) and a **`- macro:`** is a named reusable `condition:`. You reference a list with `in (list_name)` and a macro by name. This keeps rules DRY and readable.\n\n**Gotcha:** a list is referenced as `field in (list_name)` \u2014 the parentheses are required; writing `field in list_name` is a syntax error.",
       "prompt": "In `falco_rules.local.yaml` add BOTH:\n- a **list** named `sensitive_dirs` with items `/etc` and `/root`\n- a **macro** named `write_sensitive_dir` whose condition is `evt.type in (open,openat) and fd.name pmatch (sensitive_dirs)`\n\nTarget: a `- list: sensitive_dirs` containing /etc and /root, and a `- macro: write_sensitive_dir` that references `sensitive_dirs`.",
       "hint": "```\n- list: sensitive_dirs\n  items: [/etc, /root]\n- macro: write_sensitive_dir\n  condition: (evt.type in (open,openat) and fd.name pmatch (sensitive_dirs))\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "cat <<'EOF'\n- list: sensitive_dirs\n  items: [/etc, /root]\n- macro: write_sensitive_dir\n  condition: (evt.type in (open,openat) and fd.name pmatch (sensitive_dirs))\nEOF\nkubectl -n falco rollout restart ds/falco",
@@ -97,7 +97,7 @@
     {
       "id": "6",
       "title": "Tune the rule with an exception",
-      "teach": "Known-good activity (a health-check binary) causes false positives. **Tune**, don't delete: add an `exceptions:` list on the rule — each entry has `name:`, `fields:`, optional `comps:`, and `values:`. A match in any exception makes the rule **not** fire. (Alternatively, `and not <macro>` the condition.)\n\n**Gotcha:** `fields`, `comps`, and `values` must line up positionally, and `in`-style values are bracket-wrapped, e.g. `values: - [my-healthcheck]`.",
+      "teach": "Known-good activity (a health-check binary) causes false positives. **Tune**, don't delete: add an `exceptions:` list on the rule \u2014 each entry has `name:`, `fields:`, optional `comps:`, and `values:`. A match in any exception makes the rule **not** fire. (Alternatively, `and not <macro>` the condition.)\n\n**Gotcha:** `fields`, `comps`, and `values` must line up positionally, and `in`-style values are bracket-wrapped, e.g. `values: - [my-healthcheck]`.",
       "prompt": "Tune `Terminal shell in container` so a process named `my-healthcheck` does NOT fire it. Add an `exceptions:` entry named `known_good` on the rule that lists `proc.name` and references `my-healthcheck` (or add a macro and `and not ...` it into the condition).\n\nTarget: the rule has an exception named `known_good` (or a tuning macro) referencing `my-healthcheck`.",
       "hint": "Under the rule add:\n```\n  exceptions:\n  - name: known_good\n    fields: [proc.name]\n    comps: [in]\n    values:\n    - [my-healthcheck]\n```\nthen `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Append to the 'Terminal shell in container' rule:\ncat <<'EOF'\n  exceptions:\n  - name: known_good\n    fields: [proc.name]\n    comps: [in]\n    values:\n    - [my-healthcheck]\nEOF\nkubectl -n falco rollout restart ds/falco",
@@ -113,7 +113,7 @@
     {
       "id": "7",
       "title": "Keep the rule enabled",
-      "teach": "A Falco `- rule:` is **enabled by default**. An explicit `enabled: false` on the rule block (or commenting it out) silently stops detection even on a perfectly healthy DaemonSet — a classic way to accidentally blind your monitoring.\n\n**Gotcha:** `enabled:` lives on the rule block itself; there's no cluster-wide toggle — each rule carries its own state.",
+      "teach": "A Falco `- rule:` is **enabled by default**. An explicit `enabled: false` on the rule block (or commenting it out) silently stops detection even on a perfectly healthy DaemonSet \u2014 a classic way to accidentally blind your monitoring.\n\n**Gotcha:** `enabled:` lives on the rule block itself; there's no cluster-wide toggle \u2014 each rule carries its own state.",
       "prompt": "Make sure the detection path stays live: the `Terminal shell in container` rule must be an **active** `- rule:` entry (not commented out) and must NOT carry `enabled: false`.\n\nTarget: the rule appears as an active `- rule:` in `falco_rules.local.yaml` with no `enabled: false` on its block.",
       "hint": "If you added `enabled: false` or commented the rule out, re-enable it (a `- rule:` is enabled unless you set `enabled: false`). Then `kubectl -n falco rollout restart ds/falco`.",
       "solution": "# Ensure the rule is NOT disabled or commented out:\n#   - rule: Terminal shell in container     (active, no 'enabled: false')\nkubectl -n falco rollout restart ds/falco",
@@ -129,9 +129,9 @@
     {
       "id": "8",
       "title": "Diagnose & fix: a broken custom rule",
-      "teach": "Falco **refuses to load** a rules file with an error, so a single bad rule silences the whole file. Common faults: a condition referencing an **undefined macro** (a typo), or a stray `enabled: false`. Falco surfaces these as load errors — in the exam you'd read them from the pod logs, then fix the YAML.\n\n**Gotcha:** an undefined-macro typo makes Falco reject the file; fix the reference to the real macro and re-enable the rule.",
+      "teach": "Falco **refuses to load** a rules file with an error, so a single bad rule silences the whole file. Common faults: a condition referencing an **undefined macro** (a typo), or a stray `enabled: false`. Falco surfaces these as load errors \u2014 in the exam you'd read them from the pod logs, then fix the YAML.\n\n**Gotcha:** an undefined-macro typo makes Falco reject the file; fix the reference to the real macro and re-enable the rule.",
       "prompt": "The ConfigMap `falco-custom-rules` in namespace `falco` holds a rule `Detect package mgmt in container` (key `custom_rules.yaml`) that is **broken** two ways: its condition references an undefined macro `spawned_proces` (a typo for `spawned_process`), and the rule carries `enabled: false`. Fix the ConfigMap so the rule's condition uses `spawned_process` and the rule is enabled. Do not delete the ConfigMap or the rule.\n\nTarget: in `falco-custom-rules`/`custom_rules.yaml`, the rule references `spawned_process` (no `spawned_proces` typo) and has no `enabled: false`.",
-      "hint": "`kubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'` to read it. Fix the typo `spawned_proces` → `spawned_process` and remove/flip the `enabled: false` line, then `kubectl -n falco apply`/`edit` the ConfigMap.",
+      "hint": "`kubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'` to read it. Fix the typo `spawned_proces` \u2192 `spawned_process` and remove/flip the `enabled: false` line, then `kubectl -n falco apply`/`edit` the ConfigMap.",
       "solution": "# Read it:\nkubectl -n falco get cm falco-custom-rules -o jsonpath='{.data.custom_rules\\.yaml}'\n# Fix: 'spawned_proces' -> 'spawned_process', drop 'enabled: false'. e.g. edit:\nkubectl -n falco edit configmap falco-custom-rules\n# resulting rule condition: spawned_process and container, no 'enabled: false'",
       "setup": "setup/q8_setup.sh",
       "verification": [
@@ -143,5 +143,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "runtime-security"
+  ],
+  "troubleshooting": true
 }

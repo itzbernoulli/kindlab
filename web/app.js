@@ -74,6 +74,11 @@ async function refreshStatus() {
 }
 
 function renderLabList(labs) {
+  if (!labs || labs.length === 0) {
+    const list = $('#labList');
+    list.innerHTML = '<div class="muted">No labs found.</div>';
+    return;
+  }
   const list = $('#labList');
   list.innerHTML = '';
   const mockBtn = document.createElement('div');
@@ -154,7 +159,10 @@ async function loadLabs() {
 }
 
 // Wire up the browse toggle buttons (topic/cert).
-document.addEventListener('DOMContentLoaded', () => {
+// app.js is loaded at the bottom of <body>, so the DOM may already be parsed
+// by the time this runs (DOMContentLoaded would have already fired). We use a
+// readyState check so the wiring always happens regardless of load timing.
+function wireToggleButtons() {
   const togTopic = document.getElementById('togTopic');
   const togCert = document.getElementById('togCert');
   if (togTopic && togCert) {
@@ -169,7 +177,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (cachedLabs) renderLabList(cachedLabs);
     };
   }
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireToggleButtons);
+} else {
+  wireToggleButtons();
+}
 
 async function openLab(id) {
   current = id;

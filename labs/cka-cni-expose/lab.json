@@ -1,0 +1,79 @@
+{
+  "id": "cka-cni-expose",
+  "name": "Expose a Deployment: ClusterIP, headless, NodePort",
+  "type": "learn",
+  "objective": "CKA › Services & Networking + Troubleshooting. Drill the whole pod-networking surface harder than the exam: how the CNI hands out pod IPs from the pod CIDR, the node-level CNI config, a no-hint diagnose-and-fix for a broken CNI, CoreDNS resolution, ClusterIP + endpoints, the full pod→Service datapath, headless Services, and NodePort. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "services",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Expose a Deployment (kube-proxy wires the endpoints)",
+      "teach": "A **ClusterIP** Service gets a stable virtual IP that **kube-proxy** load-balances to the backing pods. `kubectl expose deployment <d> --port=80` creates it and copies the Deployment's selector, so its Endpoints auto-populate with the pod IPs.\n\n**Gotcha:** zero endpoints almost always means the selector doesn't match the pod labels — check `kubectl get endpoints <svc>`.",
+      "prompt": "Deployment `web` (nginx, 3 replicas, label `app=web`) is already running in `cni-learn`. Expose it as a `ClusterIP` Service named `web` on port `80`.\n\nTarget: Service `web` is type ClusterIP, port 80, with 3 ready endpoint addresses.",
+      "hint": "`kubectl expose deployment web -n cni-learn --name=web --port=80`, then `kubectl get endpoints web -n cni-learn` (lists the pod IPs).",
+      "solution": "kubectl expose deployment web -n cni-learn --name=web --port=80\nkubectl get endpoints web -n cni-learn",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Service web: ClusterIP, port 80, 3 active endpoints",
+          "script": "validate/q5_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Pod-to-pod through the Service",
+      "teach": "This exercises the full datapath at once: DNS resolves `web.cni-learn` to the clusterIP, kube-proxy DNATs it to a backend pod, and the CNI carries the packet so nginx replies. Fetch it with `wget -qO- http://web.cni-learn`.\n\n**Gotcha:** busybox `wget` needs `-qO-` to print to stdout — without it you get a downloaded file and empty logs.",
+      "prompt": "Run a pod named `client` (image `busybox:1.36`, `--restart=Never`) that fetches `http://web.cni-learn` and prints the response.\n\nTarget: `client`'s logs show the nginx welcome page (it reached the Service).",
+      "hint": "`kubectl run client -n cni-learn --image=busybox:1.36 --restart=Never --command -- wget -qO- http://web.cni-learn`, then `kubectl logs client -n cni-learn`.",
+      "solution": "kubectl run client -n cni-learn --image=busybox:1.36 --restart=Never --command -- wget -qO- http://web.cni-learn\nkubectl logs client -n cni-learn   # <title>Welcome to nginx!</title>",
+      "verification": [
+        {
+          "id": "1",
+          "description": "client reached the web Service (full CNI + kube-proxy datapath)",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Headless Service returns pod IPs directly",
+      "teach": "A **headless** Service (`clusterIP: None`) gets no virtual IP and no kube-proxy load-balancing. Instead its DNS name resolves straight to the **individual pod IPs** (A records), which is how StatefulSets address peers.\n\n**Gotcha:** `clusterIP: None` must be set at create time; you can't flip an existing ClusterIP Service to headless by editing.",
+      "prompt": "Create a **headless** Service named `web-hl` in `cni-learn` selecting `app=web` on port `80` (set `clusterIP: None`). It targets the existing `web` pods.\n\nTarget: Service `web-hl` has `clusterIP: None`, selector `app=web`, port 80, and endpoint addresses.",
+      "hint": "`kubectl -n cni-learn create service clusterip web-hl --clusterip=None --tcp=80:80`, then add the selector: `kubectl -n cni-learn set selector svc web-hl 'app=web'` (or write YAML with `clusterIP: None`).",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-hl, namespace: cni-learn }\nspec:\n  clusterIP: None\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\nYAML\nkubectl get endpoints web-hl -n cni-learn",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-hl: clusterIP None, selector app=web, port 80, has endpoints",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "NodePort opens the Service on every node",
+      "teach": "A **NodePort** Service builds on ClusterIP and also opens a port (default range `30000–32767`) on **every** node; kube-proxy forwards `nodeIP:nodePort` to the backends. It's the simplest way to reach a Service from outside the cluster.\n\n**Gotcha:** a nodePort outside 30000–32767 is rejected unless the apiserver's `--service-node-port-range` was widened.",
+      "prompt": "Create a `NodePort` Service named `web-np` in `cni-learn` selecting `app=web`, service port `80`, pinned to nodePort `30080`.\n\nTarget: Service `web-np` is type NodePort with port 80, nodePort 30080, selector `app=web`, and endpoint addresses.",
+      "hint": "Write YAML with `type: NodePort` and `ports: [{port: 80, targetPort: 80, nodePort: 30080}]`, selector `app=web`. (`kubectl expose` won't let you pin the nodePort.)",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-np, namespace: cni-learn }\nspec:\n  type: NodePort\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80, nodePort: 30080 } ]\nYAML\nkubectl get svc web-np -n cni-learn",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-np: NodePort, port 80, nodePort 30080, selector app=web, has endpoints",
+          "script": "validate/q8_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

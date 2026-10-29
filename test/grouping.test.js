@@ -60,3 +60,26 @@ test('a single-lab topic shelf collapses (no shelf-of-one among topics)', () => 
   const shelves = G.byTopic(labs).filter(s => G.TOPICS.some(t => t.key === s.key));
   for (const s of shelves) assert.ok(s.labs.length !== 1, `shelf ${s.key} has one lab`);
 });
+test('sole troubleshooting lab on a topic stays on its topic shelf, appears on troubleshooting shelf, and is not in Other', () => {
+  // tsLab is the ONLY lab carrying the 'storage' topic — collapse logic is live.
+  // sibling carries a different topic so there is a valid "next shelf" for normal collapse.
+  const tsLab = { id: 'ts-storage', topics: ['storage'], certs: ['CKA'], troubleshooting: true };
+  const sibling = { id: 'rbac-1', topics: ['rbac'], certs: ['CKA'] };
+  const shelves = G.byTopic([tsLab, sibling]);
+
+  const storageShelves = shelves.find(s => s.key === 'storage');
+  const tsShelves = shelves.find(s => s.key === G.TROUBLESHOOTING_KEY);
+  const otherShelf = shelves.find(s => s.key === G.OTHER_KEY);
+
+  // 1. The troubleshooting lab is still on its topic shelf (was NOT collapsed).
+  assert.ok(storageShelves && storageShelves.labs.includes(tsLab),
+    'tsLab should appear on the storage shelf');
+
+  // 2. The troubleshooting lab is cross-listed on the troubleshooting shelf.
+  assert.ok(tsShelves && tsShelves.labs.includes(tsLab),
+    'tsLab should appear on the troubleshooting shelf');
+
+  // 3. The troubleshooting lab is NOT on the Other shelf.
+  assert.ok(!otherShelf || !otherShelf.labs.includes(tsLab),
+    'tsLab should NOT be on the Other shelf');
+});

@@ -1,0 +1,31 @@
+{
+  "id": "cka-storage-pvc-fix",
+  "name": "Fix a PVC stuck Pending",
+  "type": "learn",
+  "objective": "CKA › Storage. Drill EVERY storage corner harder than the exam: StorageClasses (provisioner, reclaimPolicy, binding mode), static PVs with a retain reclaim policy, explicit static PVC binding, mounting a PVC, subPath mounts, the default-class annotation, dynamic provisioning via the default class, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "storage"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a PVC stuck Pending",
+      "teach": "A PVC that references a `storageClassName` that **doesn't exist** in the cluster stays `Pending` forever — nothing provisions it. `kubectl -n <ns> describe pvc <p>` shows a warning like `storageclass.storage.k8s.io \"<name>\" not found`. The fix is to point it at a real class, which means deleting and recreating the PVC (its `storageClassName` is immutable).\n\n**Gotcha:** you cannot `kubectl edit` a bound/pending PVC's `storageClassName` — delete the PVC and recreate it referencing the existing `fast-local` class.",
+      "prompt": "PVC `broken-pvc` in `storage-learn` is stuck `Pending`. Diagnose why, then fix it so it becomes `Bound` (keep the same name `broken-pvc`, request `500Mi`, accessModes `ReadWriteOnce`).\n\nTarget: `kubectl -n storage-learn get pvc broken-pvc` shows status `Bound`.",
+      "hint": "`kubectl -n storage-learn describe pvc broken-pvc` → the referenced storageClassName doesn't exist. Delete it and recreate `broken-pvc` using a real class (e.g. `fast-local`), then a consumer pod triggers the WaitForFirstConsumer bind. The easiest bind: recreate it with `storageClassName: fast-local` and add a pod that mounts it.",
+      "solution": "# describe shows: storageclass ... not found\nkubectl -n storage-learn delete pvc broken-pvc\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: broken-pvc\n  namespace: storage-learn\nspec:\n  accessModes:\n  - ReadWriteOnce\n  storageClassName: fast-local\n  resources:\n    requests:\n      storage: 500Mi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: fix-consumer\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: d\n      mountPath: /data\n  volumes:\n  - name: d\n    persistentVolumeClaim:\n      claimName: broken-pvc\nYAML\nkubectl -n storage-learn wait --for=jsonpath='{.status.phase}'=Bound pvc/broken-pvc --timeout=90s",
+      "verification": [
+        {
+          "id": "1",
+          "description": "broken-pvc is Bound (bad storageClassName diagnosed and fixed)",
+          "script": "validate/c8.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

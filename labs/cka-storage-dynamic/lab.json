@@ -1,0 +1,63 @@
+{
+  "id": "cka-storage-dynamic",
+  "name": "StorageClasses & dynamic provisioning",
+  "type": "learn",
+  "objective": "CKA › Storage. Drill EVERY storage corner harder than the exam: StorageClasses (provisioner, reclaimPolicy, binding mode), static PVs with a retain reclaim policy, explicit static PVC binding, mounting a PVC, subPath mounts, the default-class annotation, dynamic provisioning via the default class, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "storage"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "StorageClass: provisioner, reclaimPolicy, binding mode",
+      "teach": "A cluster-scoped **StorageClass** names a `provisioner` (the driver), a `reclaimPolicy` (`Delete`/`Retain`) applied to PVs it creates, and a `volumeBindingMode` (`Immediate` or `WaitForFirstConsumer`, which delays binding until a pod schedules).\n\n**Gotcha:** `reclaimPolicy` and `volumeBindingMode` are **immutable** — to change them you must delete and recreate the class.",
+      "prompt": "Create a StorageClass `fast-local` with provisioner `rancher.io/local-path`, `reclaimPolicy: Delete`, and `volumeBindingMode: WaitForFirstConsumer`.\n\nTarget: `kubectl get sc fast-local` shows that provisioner, reclaim policy, and binding mode.",
+      "hint": "StorageClass manifest (apiVersion `storage.k8s.io/v1`) with top-level `provisioner`, `reclaimPolicy`, and `volumeBindingMode`, then `kubectl apply -f -`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: storage.k8s.io/v1\nkind: StorageClass\nmetadata:\n  name: fast-local\nprovisioner: rancher.io/local-path\nreclaimPolicy: Delete\nvolumeBindingMode: WaitForFirstConsumer\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "StorageClass fast-local: provisioner rancher.io/local-path, reclaimPolicy Delete, WaitForFirstConsumer",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Mark a StorageClass as the cluster default",
+      "teach": "A PVC that **omits** `storageClassName` uses the cluster's **default StorageClass**. Mark a class default with the annotation `storageclass.kubernetes.io/is-default-class: \"true\"` (via `kubectl patch` or `annotate`); `kubectl get sc` then flags it `(default)`.\n\n**Gotcha:** the value must be the quoted **string** `\"true\"`, and only one class should carry it — two defaults is an error.",
+      "prompt": "Mark StorageClass `fast-local` as the cluster default via the `storageclass.kubernetes.io/is-default-class` annotation.\n\nTarget: `kubectl get sc` shows `fast-local (default)`.",
+      "hint": "`kubectl patch storageclass fast-local -p '{\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"}}}'`.",
+      "solution": "kubectl patch storageclass fast-local -p '{\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"}}}'\nkubectl get sc",
+      "verification": [
+        {
+          "id": "1",
+          "description": "StorageClass fast-local annotated is-default-class=\"true\"",
+          "script": "validate/c6.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Dynamic provisioning via the default class",
+      "teach": "A PVC with **no** `storageClassName` is handled by the default class and **dynamically provisions** a PV. Because `fast-local` is `WaitForFirstConsumer`, the PVC stays `Pending` until a pod that uses it is scheduled — only then does it bind.\n\n**Gotcha:** with `WaitForFirstConsumer`, seeing the PVC `Pending` before any consumer exists is **normal**, not a failure — create the consuming pod to trigger binding.",
+      "prompt": "In namespace `storage-learn`:\n- create PVC `dyn-pvc` requesting `500Mi`, accessModes `ReadWriteOnce`, with **no** `storageClassName` (so it uses the default).\n- create pod `dyn-app` (`busybox:1.36`, `sleep 3600`) that mounts `dyn-pvc` at `/data` to trigger binding.\n\nTarget: `dyn-pvc` becomes `Bound` and pod `dyn-app` is `Running`.",
+      "hint": "Omit `storageClassName` entirely on the PVC (do NOT set it to \"\"). Then the pod referencing it via `persistentVolumeClaim.claimName: dyn-pvc` triggers the WaitForFirstConsumer bind.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: dyn-pvc\n  namespace: storage-learn\nspec:\n  accessModes:\n  - ReadWriteOnce\n  resources:\n    requests:\n      storage: 500Mi\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: dyn-app\n  namespace: storage-learn\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    volumeMounts:\n    - name: data\n      mountPath: /data\n  volumes:\n  - name: data\n    persistentVolumeClaim:\n      claimName: dyn-pvc\nYAML\nkubectl -n storage-learn wait --for=condition=Ready pod/dyn-app --timeout=90s",
+      "verification": [
+        {
+          "id": "1",
+          "description": "dyn-pvc is Bound (dynamically provisioned via default class) and dyn-app is Running",
+          "script": "validate/c7.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ]
+}

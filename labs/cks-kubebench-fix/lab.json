@@ -1,0 +1,32 @@
+{
+  "id": "cks-kubebench-fix",
+  "name": "Fix a kube-bench kubelet-config FAIL",
+  "type": "learn",
+  "objective": "CKS › Cluster Setup + System Hardening (10% + 15%). Drill the kube-bench workflow harder than the exam: run it as a Job against node AND master, read [PASS]/[FAIL]/[WARN], then remediate every recurring finding — manifest & PKI file modes, the kubelet read-only port, the apiserver NodeRestriction plugin — plus a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "hardening"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a kube-bench kubelet-config FAIL",
+      "teach": "CIS 4.1.9 wants the kubelet config file `/var/lib/kubelet/config.yaml` at mode `0600` or stricter — it holds the kubelet's security settings. kube-bench names the file and expected mode in its `[FAIL]` line; confirm with `stat -c '%a'`.\n\n**Gotcha:** this is a `chmod`-only fix — do NOT restart the kubelet, and don't confuse the file's mode with its `readOnlyPort` content from the previous step.",
+      "prompt": "kube-bench reports a `[FAIL]` for the kubelet config file permissions on worker `$W1` — setup loosened `/var/lib/kubelet/config.yaml` to mode `644`. Diagnose which file and mode CIS expects, then fix it. No hint beyond the kube-bench output. Do NOT restart the kubelet.\n\nTarget: `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml` prints `600` (and the file still contains `readOnlyPort: 0` from the prior step).",
+      "hint": "Re-run kube-bench node (or just `docker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml`) — it's `644`, CIS 4.1.9 wants `600`. `docker exec $W1 chmod 600 /var/lib/kubelet/config.yaml`.",
+      "solution": "# kube-bench 4.1.9: /var/lib/kubelet/config.yaml must be 600 or more restrictive.\ndocker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml   # 644 -> too open\ndocker exec $W1 chmod 600 /var/lib/kubelet/config.yaml\ndocker exec $W1 stat -c '%a' /var/lib/kubelet/config.yaml   # 600",
+      "setup": "setup/q7_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "kubelet config file on $W1 is exactly mode 600 (diagnose-and-fix)",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

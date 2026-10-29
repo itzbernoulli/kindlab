@@ -151,7 +151,7 @@ function byTopic(labs) {
     result.push({ key: TROUBLESHOOTING_KEY, label: 'Troubleshooting', labs: troubleshootingLabs });
   }
   if (examsLabs.length > 0) {
-    result.push({ key: EXAMS_KEY, label: 'Exams', labs: examsLabs });
+    result.push({ key: EXAMS_KEY, label: 'Exams & Mocks', labs: examsLabs });
   }
   if (otherSet.length > 0) {
     result.push({ key: OTHER_KEY, label: 'Other', labs: otherSet });

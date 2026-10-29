@@ -238,7 +238,7 @@ function cmdList(opts) {
 
 function cmdTasks(id) {
   const lab = getLab(id);
-  console.log(paint(`\n  ${lab.name}  ${paint(`[${lab.category}]`, 'gray')}`, 'bold'));
+  console.log(paint(`\n  ${lab.name}  ${paint(`[${grouping.certOf(lab)}]`, 'gray')}`, 'bold'));
   if (lab.objective) console.log(paint(`  🎯 ${lab.objective}`, 'cyan'));
   console.log('');
   for (const q of lab.questions) {
@@ -287,7 +287,7 @@ function cmdLearn(id) {
   if (lab.needsSecondCluster) ensureSecond();
   console.log(paint(`\nPreparing lesson '${lab.name}'...`, 'cyan'));
   ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
-  console.log(paint(`\n  📘 LEARN: ${lab.name}  ${paint(`[${lab.category}]`, 'gray')}`, 'bold'));
+  console.log(paint(`\n  📘 LEARN: ${lab.name}  ${paint(`[${grouping.certOf(lab)}]`, 'gray')}`, 'bold'));
   if (lab.objective) console.log(paint(`  🎯 ${lab.objective}`, 'cyan'));
   console.log('');
   for (const q of lab.questions) {
@@ -350,7 +350,7 @@ function gradeLab(lab) {
   }
   const pct = total ? Math.round((got / total) * 100) : 0;
   const rank = pct >= 90 ? 'high' : pct >= 70 ? 'medium' : pct >= 50 ? 'low' : 'fail';
-  const out = { labId: lab.id, name: lab.name, category: lab.category, got, total, pct, rank, results, at: new Date().toISOString() };
+  const out = { labId: lab.id, name: lab.name, category: grouping.certOf(lab), got, total, pct, rank, results, at: new Date().toISOString() };
   ensureState();
   fs.writeFileSync(path.join(STATE_DIR, `${lab.id}.result.json`), JSON.stringify(out, null, 2));
   return out;
@@ -509,7 +509,7 @@ function cmdServe(port = 8080) {
       if (p.startsWith('/api/lab/')) {
         const lab = loadLabs().find(l => l.id === p.split('/')[3]);
         if (!lab) return sendJSON(res, { error: 'not found' }, 404);
-        return sendJSON(res, lab);
+        return sendJSON(res, { ...lab, category: grouping.certOf(lab) });
       }
       if (p.startsWith('/api/answers/')) {
         const lab = loadLabs().find(l => l.id === p.split('/')[3]);

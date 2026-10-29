@@ -1,13 +1,13 @@
 #!/bin/bash
-# $W1 tainted workload=batch:NoSchedule; batch-pod Running on $W1 with a matching Equal toleration.
-[ -z "$W1" ] && { echo "❌ worker node var W1 is empty"; exit 1; }
-NJ=$(kubectl get node "$W1" -o json 2>/dev/null); [ -z "$NJ" ] && { echo "❌ node '$W1' not found"; exit 1; }; export NJ
+# $W2 tainted workload=batch:NoSchedule; batch-pod Running on $W2 with a matching Equal toleration.
+[ -z "$W2" ] && { echo "❌ worker node var W2 is empty"; exit 1; }
+NJ=$(kubectl get node "$W2" -o json 2>/dev/null); [ -z "$NJ" ] && { echo "❌ node '$W2' not found"; exit 1; }; export NJ
 J=$(kubectl -n sched-learn get pod batch-pod -o json 2>/dev/null); [ -z "$J" ] && { echo "❌ pod 'batch-pod' not found in sched-learn"; exit 1; }; export J
-export W1
+export W2
 python3 - <<'PY'
 import os,json,sys
 def fail(m): print("❌ "+m); sys.exit(1)
-w1=os.environ["W1"]
+w1=os.environ["W2"]
 n=json.loads(os.environ["NJ"])
 taints=n["spec"].get("taints") or []
 t=next((x for x in taints if x.get("key")=="workload"),None)

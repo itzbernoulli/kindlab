@@ -1,9 +1,15 @@
+// web/app.js — uses web/grouping.js (browser mirror of lib/grouping.js) for dual-axis browse.
+// web/grouping.js must stay in sync with lib/grouping.js (it is the single source of truth).
 const $ = (s, r = document) => r.querySelector(s);
 const api = (p, opts) => fetch(p, opts).then(r => r.json());
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let current = null;
 let clusterInfo = {};
+// Browse mode: 'topic' (default) or 'cert'
+let browseMode = 'topic';
+// Last fetched labs list (for re-rendering on toggle without refetch)
+let cachedLabs = null;
 
 // Click-to-copy: like the exam, clicking an inline `code` token (name,
 // namespace, value) in the "Your turn" task box copies it for the terminal.
@@ -67,10 +73,8 @@ async function refreshStatus() {
   return s.up;
 }
 
-async function loadLabs() {
-  const labs = await api('/api/labs');
+function renderLabList(labs) {
   const list = $('#labList');
-  if (!labs.length) { list.innerHTML = '<div class="muted">No labs found.</div>'; return; }
   list.innerHTML = '';
   const mockBtn = document.createElement('div');
   mockBtn.className = 'mock-launch';
@@ -83,11 +87,12 @@ async function loadLabs() {
   resetAll.onclick = async () => {
     if (!confirm('Clear ALL saved scores across every lab? (Your clusters are untouched — this only resets the ✓ marks and mastered badges.)')) return;
     const r = await api('/api/clear-all', { method: 'POST' });
+    cachedLabs = null;
     await loadLabs();
     $('#panel').innerHTML = `<div class="muted" style="padding:40px 4px">Cleared ${r.cleared || 0} saved result${(r.cleared === 1) ? '' : 's'}. Pick a lab to begin.</div>`;
   };
   list.appendChild(resetAll);
-  const section = (title, cert) => { const h = document.createElement('div'); h.className = 'lab-section cert-' + cert; h.textContent = title; list.appendChild(h); };
+
   const addCard = (l) => {
     const t = l.type === 'learn' ? 'learn' : 'exam';
     const card = document.createElement('div');
@@ -99,14 +104,35 @@ async function loadLabs() {
     card.onclick = () => { document.querySelectorAll('.lab-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); openLab(l.id); };
     list.appendChild(card);
   };
-  for (const cert of ['CKAD', 'CKA', 'CKS', 'Other']) {
-    const inCert = labs.filter(l => l.category === cert);
-    if (!inCert.length) continue;
-    section(cert, cert);
-    const learn = inCert.filter(l => l.type === 'learn');
-    const exam = inCert.filter(l => l.type !== 'learn');
-    [...learn, ...exam].forEach(addCard);
+
+  if (browseMode === 'cert') {
+    // Cert view: uses byCert from web/grouping.js (mirrors lib/grouping.js).
+    // Dual-cert labs appear under each of their certs.
+    const shelves = window.byCert(labs);
+    for (const shelf of shelves) {
+      const h = document.createElement('div');
+      h.className = 'lab-section cert-' + shelf.cert;
+      h.textContent = shelf.cert;
+      list.appendChild(h);
+      const learn = shelf.labs.filter(l => l.type === 'learn');
+      const exam = shelf.labs.filter(l => l.type !== 'learn');
+      [...learn, ...exam].forEach(addCard);
+    }
+  } else {
+    // Topic view (default): uses byTopic from web/grouping.js (mirrors lib/grouping.js).
+    const shelves = window.byTopic(labs);
+    for (const shelf of shelves) {
+      const h = document.createElement('div');
+      // Topic shelves have .label; trailing shelves (troubleshooting/exams/other) also have .label now.
+      h.className = 'lab-section topic-shelf topic-' + shelf.key;
+      h.textContent = shelf.label || shelf.key;
+      list.appendChild(h);
+      const learn = shelf.labs.filter(l => l.type === 'learn');
+      const exam = shelf.labs.filter(l => l.type !== 'learn');
+      [...learn, ...exam].forEach(addCard);
+    }
   }
+
   // Mark already-mastered learn labs from saved results.
   for (const l of labs.filter(l => l.type === 'learn')) {
     api('/api/result/' + l.id).then(r => {
@@ -116,6 +142,34 @@ async function loadLabs() {
     }).catch(() => {});
   }
 }
+
+async function loadLabs() {
+  if (!cachedLabs) {
+    cachedLabs = await api('/api/labs');
+  }
+  const labs = cachedLabs;
+  const list = $('#labList');
+  if (!labs.length) { list.innerHTML = '<div class="muted">No labs found.</div>'; return; }
+  renderLabList(labs);
+}
+
+// Wire up the browse toggle buttons (topic/cert).
+document.addEventListener('DOMContentLoaded', () => {
+  const togTopic = document.getElementById('togTopic');
+  const togCert = document.getElementById('togCert');
+  if (togTopic && togCert) {
+    togTopic.onclick = () => {
+      browseMode = 'topic';
+      togTopic.classList.add('on'); togCert.classList.remove('on');
+      if (cachedLabs) renderLabList(cachedLabs);
+    };
+    togCert.onclick = () => {
+      browseMode = 'cert';
+      togCert.classList.add('on'); togTopic.classList.remove('on');
+      if (cachedLabs) renderLabList(cachedLabs);
+    };
+  }
+});
 
 async function openLab(id) {
   current = id;

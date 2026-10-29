@@ -55,7 +55,25 @@ header {
 
 /* ---------- layout ---------- */
 main { display: flex; gap: 22px; padding: 22px; align-items: flex-start; max-width: 1400px; margin: 0 auto; }
-.labs { width: 304px; flex-shrink: 0; display: flex; flex-direction: column; gap: 7px; }
+.sidebar-col { width: 304px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+.labs { display: flex; flex-direction: column; gap: 7px; }
+
+/* ---------- browse toggle (topic / cert) ---------- */
+.browse-toggle {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: var(--surface); align-self: flex-start; width: 100%;
+}
+.tog-btn {
+  flex: 1; border: none; border-radius: 0; background: transparent;
+  color: var(--muted); padding: 8px 14px; font-size: 12.5px; font-weight: 600;
+  letter-spacing: .02em; cursor: pointer; transition: background .12s, color .12s;
+}
+.tog-btn:hover { color: var(--ink); filter: none; }
+.tog-btn.on { background: var(--k8s); color: #fff; }
+
+/* ---------- topic shelf headers ---------- */
+.lab-section.topic-shelf { color: var(--muted); }
+.lab-section.topic-shelf::before { background: var(--muted); }
 
 /* ---------- sidebar sections + cards ---------- */
 .lab-section {
@@ -254,6 +272,7 @@ button.mini { padding: 6px 13px; font-size: 13px; }
 /* ---------- responsive + a11y ---------- */
 @media (max-width: 860px) {
   main { flex-direction: column; }
+  .sidebar-col { width: 100%; }
   .labs { width: 100%; }
   .panel { padding: 22px 18px; }
 }

@@ -19,6 +19,7 @@ const ROOT = path.resolve(__dirname, '..');
 const LABS_DIR = path.join(ROOT, 'labs');
 const WEB_DIR = path.join(ROOT, 'web');
 const grouping = require('../lib/grouping');
+const serializeLab = require('../lib/serialize-lab');
 const STATE_DIR = path.join(ROOT, '.state');
 const KIND_CFG = path.join(ROOT, 'kind', 'cluster.yaml');
 const CLUSTER = 'kindlab';
@@ -502,9 +503,9 @@ function cmdServe(port = 8080) {
     const p = url.pathname;
     try {
       if (p === '/' ) return serveStatic(res, path.join(WEB_DIR, 'index.html'));
-      if (p === '/app.js' || p === '/styles.css') return serveStatic(res, path.join(WEB_DIR, p.slice(1)));
+      if (p === '/app.js' || p === '/styles.css' || p === '/grouping.js') return serveStatic(res, path.join(WEB_DIR, p.slice(1)));
       if (p === '/api/status') return sendJSON(res, { up: clusterExists(), cluster: CLUSTER, nodes: nodeNames(), kubeconfig: KUBECONFIG, context: CTX, controlPlane: `${CLUSTER}-control-plane` });
-      if (p === '/api/labs') return sendJSON(res, loadLabs().map(l => ({ id: l.id, name: l.name, category: l.category, type: labType(l), requiresHost: !!l.requiresHost, tasks: (l.questions || []).length })));
+      if (p === '/api/labs') return sendJSON(res, loadLabs().map(l => serializeLab(l, labType)));
       if (p.startsWith('/api/lab/')) {
         const lab = loadLabs().find(l => l.id === p.split('/')[3]);
         if (!lab) return sendJSON(res, { error: 'not found' }, 404);

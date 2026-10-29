@@ -151,7 +151,7 @@ Env available to scripts: `CP`, `W1`, `W2` (node names), `WORKERS`, `CTX`, `CTX2
 ### Lab metadata schema
 
 `lab.json` fields:
-- `title`, `type` (`"learn"` or `"exam"`), `steps` — the usual lab fields.
+- `name`, `type` (`"learn"` or `"exam"`), `questions` — the usual lab fields.
 - **`certs`** *(required)* — array of cert identifiers the lab belongs to. Valid values: `"CKAD"`, `"CKA"`, `"CKS"`. A lab may list multiple certs (e.g., `["CKAD", "CKA"]` for a cross-cert topic). The first cert (`certs[0]`) is the **primary** cert (used for display, mocks, cert-grouped browse).
 - **`topics`** *(optional)* — array of topic shelf keys the lab appears on. See the canonical list below. `topics[0]` is the **home shelf** (where the lab is listed first); later entries are cross-listings on additional shelves. Omit or use `[]` for exam/capstone labs, which then appear on the **Exams & Mocks** shelf.
 - **`troubleshooting`** *(optional)* — boolean. If `true`, the lab is **cross-listed** on the Troubleshooting shelf *in addition to* its topic shelf. Useful for debugging-focused labs or reference materials.
@@ -169,6 +169,10 @@ Shelves are displayed in declaration order. (The pinned **Troubleshooting**, **E
 
 - **Topic view (default):** `kindlab list` or toggle in the web dashboard. Groups labs by topic shelf, then by cert within each shelf.
 - **Cert view:** `kindlab list --cert` or toggle in the web dashboard. Groups labs by cert (CKAD / CKA / CKS), then by topic within each cert.
+
+### Topic & cert mirrors (lib ↔ web)
+
+The canonical `TOPICS` and `CERTS` definitions live in **`lib/grouping.js`** (Node module). Because the browser has no bundler and cannot `require()` (zero-dependency rule), these definitions are **manually mirrored** in **`web/grouping.js`** as global variables. If you add, remove, or rename a topic in `lib/grouping.js`, you **must mirror the change** in `web/grouping.js` (same order, same keys). The test **`test/web-mirror.test.js`** fails if the two drift, so run `node --test` after any change to `lib/grouping.js` that touches topics or certs.
 
 ---
 

@@ -1,0 +1,62 @@
+{
+  "id": "cks-runtimeclass-workloads",
+  "name": "Use RuntimeClasses in workloads",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY RuntimeClass corner harder than the exam: create a class and its required handler, the optional scheduling/overhead fields, select it per-pod and per-Deployment, contrast with the default runtime, layer securityContext hardening on top, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "runtime-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Harden the sandboxed pod (defence in depth)",
+      "teach": "A sandbox is one layer — stack **securityContext** hardening for defence in depth: **drop ALL capabilities** (container `securityContext.capabilities.drop: [\"ALL\"]`) and **run non-root** (`runAsNonRoot: true` + `runAsUser: 1000`), while keeping `spec.runtimeClassName: gvisor`.\n\n**Gotcha:** `capabilities` is **container-level** — putting it in the pod `securityContext` is a silent no-op.",
+      "prompt": "Replace pod `sandboxed` in `runtimeclass-learn` so it still requests `runtimeClassName: gvisor` AND its container drops **ALL** capabilities and runs non-root (`runAsNonRoot: true`, `runAsUser: 1000`). Keep image `busybox:1.36`, command `sleep 3600`.\n\nTarget: `sandboxed` has runtimeClassName `gvisor`, `runAsNonRoot: true`, `runAsUser: 1000`, and its container's `capabilities.drop` contains `ALL`.",
+      "hint": "Delete and re-apply YAML with `spec.runtimeClassName: gvisor`, pod `securityContext: { runAsNonRoot: true, runAsUser: 1000 }`, and the container's `securityContext.capabilities.drop: [\"ALL\"]`. busybox sleep runs fine as uid 1000.",
+      "solution": "kubectl delete pod sandboxed -n runtimeclass-learn --ignore-not-found\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: sandboxed, namespace: runtimeclass-learn }\nspec:\n  runtimeClassName: gvisor\n  securityContext:\n    runAsNonRoot: true\n    runAsUser: 1000\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      capabilities:\n        drop: [\"ALL\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "'sandboxed' keeps gvisor AND runs non-root (uid 1000) AND drops ALL caps",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Select a RuntimeClass from a Deployment",
+      "teach": "For controllers, `runtimeClassName` lives in the **pod template** — `spec.template.spec.runtimeClassName` — so every replica gets the sandbox. It is NOT a field on the Deployment's own `spec`.\n\n**Gotcha:** setting it at `deployment.spec.runtimeClassName` (outside the template) is rejected/ignored — it must be inside `template.spec`.",
+      "prompt": "In `runtimeclass-learn`, create a Deployment `sandboxed-web` with 2 replicas, container `c` running `nginx:1.25`, whose pod template requests `runtimeClassName: gvisor`.\n\nTarget: Deployment `sandboxed-web` has 2 replicas and `.spec.template.spec.runtimeClassName` = `gvisor`.",
+      "hint": "Put `runtimeClassName: gvisor` under `spec.template.spec` (sibling of `containers`), not on the Deployment spec. Set `spec.replicas: 2`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: sandboxed-web, namespace: runtimeclass-learn }\nspec:\n  replicas: 2\n  selector: { matchLabels: { app: sandboxed-web } }\n  template:\n    metadata: { labels: { app: sandboxed-web } }\n    spec:\n      runtimeClassName: gvisor\n      containers:\n      - name: c\n        image: nginx:1.25\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'sandboxed-web': 2 replicas + template.spec.runtimeClassName gvisor",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "List and confirm both classes coexist",
+      "teach": "A cluster can expose **several** RuntimeClasses so workloads pick the isolation they need; `kubectl get runtimeclass` lists them all. The class **name** (what pods reference) and the **`handler`** (what the CRI maps to a binary) are separate fields.\n\n**Gotcha:** deleting a RuntimeClass does NOT touch pods already referencing it — they keep their `runtimeClassName` string, which simply won't resolve on the next schedule.",
+      "prompt": "Confirm the cluster exposes BOTH classes you built: `gvisor` (handler `runsc`) and `kata` (handler `kata`), coexisting.\n\nTarget: `kubectl get runtimeclass` lists both `gvisor` and `kata` with their correct handlers (`runsc` and `kata`).",
+      "hint": "This passes once steps 1 and 2 are done. Verify with `kubectl get runtimeclass` and `kubectl get runtimeclass gvisor kata -o jsonpath='{.items[*].handler}'`.",
+      "solution": "kubectl get runtimeclass gvisor kata",
+      "verification": [
+        {
+          "id": "1",
+          "description": "both 'gvisor' (runsc) and 'kata' (kata) exist and coexist",
+          "script": "validate/q7_s1.sh",
+          "weightage": 11
+        }
+      ]
+    }
+  ]
+}

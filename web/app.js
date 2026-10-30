@@ -7,7 +7,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;
 let current = null;
 let clusterInfo = {};
 // Browse mode: 'topic' (default) or 'cert'
-let browseMode = 'topic';
+let browseMode = 'cert';
 // Last fetched labs list (for re-rendering on toggle without refetch)
 let cachedLabs = null;
 
@@ -98,7 +98,7 @@ function renderLabList(labs) {
   };
   list.appendChild(resetAll);
 
-  const addCard = (l) => {
+  const makeCard = (l) => {
     const t = l.type === 'learn' ? 'learn' : 'exam';
     const card = document.createElement('div');
     card.className = `lab-card type-${t} cat-${l.category}`;
@@ -107,34 +107,45 @@ function renderLabList(labs) {
     card.innerHTML = `<div class="name">${esc(l.name)}</div>
       <div class="meta"><span class="type-tag ${t}">${t === 'learn' ? 'Learn' : 'Exam'}</span> · ${l.tasks} ${unit}${l.requiresHost ? ' · <span class="host-tag">needs host</span>' : ''}</div>`;
     card.onclick = () => { document.querySelectorAll('.lab-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); openLab(l.id); };
-    list.appendChild(card);
+    return card;
+  };
+
+  // Collapsed-section state persists across refreshes, keyed per browse mode + section.
+  const collapseKey = (id) => `kindlab.collapsed.${browseMode}.${id}`;
+  const isCollapsed = (id) => localStorage.getItem(collapseKey(id)) === '1';
+
+  // Render one collapsible section: a clickable header that folds/unfolds its cards.
+  const renderShelf = (id, headerCls, headerText, shelfLabs) => {
+    const collapsed = isCollapsed(id);
+    const h = document.createElement('div');
+    h.className = 'lab-section ' + headerCls + (collapsed ? ' collapsed' : '');
+    h.innerHTML = `<span class="caret">▾</span><span class="sec-label">${esc(headerText)}</span><span class="sec-count">${shelfLabs.length}</span>`;
+    list.appendChild(h);
+    const body = document.createElement('div');
+    body.className = 'lab-section-body';
+    if (collapsed) body.style.display = 'none';
+    const learn = shelfLabs.filter(l => l.type === 'learn');
+    const exam = shelfLabs.filter(l => l.type !== 'learn');
+    [...learn, ...exam].forEach(l => body.appendChild(makeCard(l)));
+    list.appendChild(body);
+    h.onclick = () => {
+      const nowCollapsed = !h.classList.contains('collapsed');
+      h.classList.toggle('collapsed', nowCollapsed);
+      body.style.display = nowCollapsed ? 'none' : '';
+      localStorage.setItem(collapseKey(id), nowCollapsed ? '1' : '0');
+    };
   };
 
   if (browseMode === 'cert') {
     // Cert view: uses byCert from web/grouping.js (mirrors lib/grouping.js).
     // Dual-cert labs appear under each of their certs.
-    const shelves = window.byCert(labs);
-    for (const shelf of shelves) {
-      const h = document.createElement('div');
-      h.className = 'lab-section cert-' + shelf.cert;
-      h.textContent = shelf.cert;
-      list.appendChild(h);
-      const learn = shelf.labs.filter(l => l.type === 'learn');
-      const exam = shelf.labs.filter(l => l.type !== 'learn');
-      [...learn, ...exam].forEach(addCard);
+    for (const shelf of window.byCert(labs)) {
+      renderShelf('cert:' + shelf.cert, 'cert-' + shelf.cert, shelf.cert, shelf.labs);
     }
   } else {
     // Topic view (default): uses byTopic from web/grouping.js (mirrors lib/grouping.js).
-    const shelves = window.byTopic(labs);
-    for (const shelf of shelves) {
-      const h = document.createElement('div');
-      // Topic shelves have .label; trailing shelves (troubleshooting/exams/other) also have .label now.
-      h.className = 'lab-section topic-shelf topic-' + shelf.key;
-      h.textContent = shelf.label || shelf.key;
-      list.appendChild(h);
-      const learn = shelf.labs.filter(l => l.type === 'learn');
-      const exam = shelf.labs.filter(l => l.type !== 'learn');
-      [...learn, ...exam].forEach(addCard);
+    for (const shelf of window.byTopic(labs)) {
+      renderShelf('topic:' + shelf.key, 'topic-shelf topic-' + shelf.key, shelf.label || shelf.key, shelf.labs);
     }
   }
 

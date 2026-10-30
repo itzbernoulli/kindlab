@@ -1,13 +1,14 @@
 {
   "id": "cka-sched-daemonset-fix",
-  "name": "DaemonSets + fix an unschedulable pod",
+  "name": "DaemonSet coverage + fix an unschedulable pod",
   "type": "learn",
   "objective": "CKA › Workloads & Scheduling. Drill EVERY way to control where pods land, harder than the exam: node labels + nodeSelector, taints & tolerations (Equal + Exists), required and preferred nodeAffinity, pod anti-affinity spread, manual nodeName scheduling, DaemonSet coverage, and a no-hint diagnose-and-fix for an unschedulable pod. Graded exactly, per requirement.",
   "certs": [
     "CKA"
   ],
   "topics": [
-    "scheduling"
+    "scheduling",
+    "workloads"
   ],
   "questions": [
     {

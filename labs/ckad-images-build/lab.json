@@ -1,0 +1,63 @@
+{
+  "id": "ckad-images-build",
+  "name": "Build and modify container images",
+  "type": "learn",
+  "objective": "CKAD › Application Design and Build (20%) + supply chain. The full image lifecycle: build from a Dockerfile, snapshot a running container with commit, modify/tag, save to a .tgz, export to the OCI format, load into the cluster and run it, and push to a registry.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "images"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Build an image from a Dockerfile",
+      "teach": "Build an image from a **Dockerfile** plus a **build context** (the directory you hand the builder): `docker build -t name:tag <context>`. The `-t` names and tags the result in one shot.\n\n**Gotcha:** the context path is positional, not the Dockerfile path — `.` means the current dir, not the Dockerfile's dir. Skip `-t` and you get a dangling `<none>:<none>` image.",
+      "prompt": "A build context is prepared at `/tmp/kindlab-img` (a `Dockerfile` + `hello.txt`). Build an image tagged `myapp:1.0` from it.\n\nTarget: `docker image inspect myapp:1.0` succeeds and the image carries the Dockerfile's `LABEL stage=base`.",
+      "hint": "`docker build -t myapp:1.0 /tmp/kindlab-img` — then `docker image inspect myapp:1.0` to confirm it exists.",
+      "solution": "docker build -t myapp:1.0 /tmp/kindlab-img\ndocker image inspect myapp:1.0 --format '{{ index .Config.Labels \"stage\" }}'   # base",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "image myapp:1.0 built from the provided Dockerfile",
+          "script": "validate/q1_s1.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Commit a running container into an image",
+      "teach": "`docker commit <container> name:tag` snapshots a running container's current filesystem into a new image — a quick way to capture ad-hoc state without a Dockerfile.\n\n**Gotcha:** commit captures only the container's writable layer; it does **not** include mounted volumes, and the result keeps the base image's `CMD`/`ENV` unless you override them with `--change`.",
+      "prompt": "A container named `appbox` (busybox) is already running. Snapshot its current state into an image named `committed:1.0` using `docker commit`.\n\nTarget: `docker image inspect committed:1.0` succeeds.",
+      "hint": "`docker commit appbox committed:1.0`, then `docker image inspect committed:1.0`.",
+      "solution": "docker commit appbox committed:1.0\ndocker image inspect committed:1.0 --format '{{.Id}}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "running container 'appbox' committed to image committed:1.0",
+          "script": "validate/qc_commit.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Modify the image: add a label and tag",
+      "teach": "You can stamp a label onto an image at build time without touching the Dockerfile: `docker build -t myapp:2.0 --label version=2 <context>`. It lands under `.Config.Labels`, the same place a Dockerfile `LABEL` would.\n\n**Gotcha:** `--label` writes config metadata, not a new filesystem layer — verify with `docker image inspect --format '{{ index .Config.Labels \"version\" }}'`, not `docker history`.",
+      "prompt": "Rebuild the same context as `myapp:2.0`, adding an image label `version=2` **via the build flag** (don't edit the Dockerfile).\n\nTarget: image `myapp:2.0` exists and its config label `version` equals `2`.",
+      "hint": "`docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img`. Verify: `docker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'`.",
+      "solution": "docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img\ndocker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'   # 2",
+      "verification": [
+        {
+          "id": "1",
+          "description": "image myapp:2.0 built with label version=2",
+          "script": "validate/q2_s1.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

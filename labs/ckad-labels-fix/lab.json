@@ -1,0 +1,31 @@
+{
+  "id": "ckad-labels-fix",
+  "name": "Fix a selector that matches nothing",
+  "type": "learn",
+  "objective": "CKAD core: label and annotate objects, and target them with equality + set-based selectors. Add/overwrite/remove labels, bulk-label via a selector, set-based matching, matchExpressions selectors, annotations, and a selector-mismatch diagnose-fix. Graded exactly.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "labels"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a selector that matches nothing",
+      "teach": "A Service with **no endpoints** despite healthy pods means its selector doesn't match any pod labels. Compare `kubectl get svc <s> -o jsonpath='{.spec.selector}'` to `kubectl get pods --show-labels` and loosen/fix the selector.\n\n**Gotcha:** removing a selector key via patch needs `key: null` (a plain merge keeps it).",
+      "prompt": "Service `shop-svc` in `labels-learn` selects `app=shop,tier=cache` — but no pod has `tier=cache`, so it has zero endpoints. Fix the selector so it fronts the `app=shop` pods. Don't delete it.\n\nTarget: `shop-svc` has at least one endpoint.",
+      "hint": "`kubectl -n labels-learn get svc shop-svc -o jsonpath='{.spec.selector}'` shows `tier: cache`. Remove it: `kubectl -n labels-learn patch svc shop-svc -p '{\"spec\":{\"selector\":{\"app\":\"shop\",\"tier\":null}}}'`.",
+      "solution": "kubectl -n labels-learn patch svc shop-svc -p '{\"spec\":{\"selector\":{\"app\":\"shop\",\"tier\":null}}}'\nkubectl -n labels-learn get endpoints shop-svc -o wide",
+      "verification": [
+        {
+          "id": "1",
+          "description": "shop-svc now has endpoints (selector fixed)",
+          "script": "validate/c7.sh",
+          "weightage": 15
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

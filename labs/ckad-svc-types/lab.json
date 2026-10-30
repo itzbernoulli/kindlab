@@ -1,0 +1,80 @@
+{
+  "id": "ckad-svc-types",
+  "name": "Service types: ClusterIP, NodePort, Headless, ExternalName",
+  "type": "learn",
+  "objective": "CKAD › Services & Networking. Drill every Service shape and the Ingress/endpoints surface: ClusterIP with named targetPort, NodePort on a pinned port, headless, ExternalName, sessionAffinity, Ingress (pathType/ingressClassName/TLS), a selector-less Service + manual EndpointSlice, and a no-hint 'no endpoints' diagnose-fix. Graded exactly.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "services",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "ClusterIP with a named targetPort",
+      "teach": "`targetPort` can be a **named** container port instead of a number — handy when the port number may change. Just set `targetPort: http` to match the container's named port.\n\n**Gotcha:** the name must exactly match the container's port name, not the number.",
+      "prompt": "A Deployment `web` (label `app=web`, container port **named `http`** = 80) runs in `svcnet-learn`. Create a **ClusterIP** Service `web-svc` with `port: 80` whose `targetPort` is the **named** port `http`, selecting `app=web`.\n\nTarget: `web-svc` ClusterIP, port 80 → targetPort `http`, selector app=web.",
+      "hint": "`targetPort: http` (the name, not 80). `kubectl -n svcnet-learn expose deployment web --name web-svc --port 80 --target-port http`.",
+      "solution": "kubectl -n svcnet-learn expose deployment web --name web-svc --port 80 --target-port http\nkubectl -n svcnet-learn get endpoints web-svc",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-svc ClusterIP port 80 -> targetPort 'http', selector app=web",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "NodePort on a pinned port",
+      "teach": "A **NodePort** Service (`type: NodePort`) opens a port on every node. Pin it with `nodePort: 30080` instead of letting one be auto-assigned.\n\n**Gotcha:** `nodePort` must fall in the 30000–32767 range.",
+      "prompt": "Create a **NodePort** Service `web-np` for `app=web`: `port: 80`, `targetPort: 80`, pinned `nodePort: 30080`.\n\nTarget: `web-np` type NodePort, port 80 → 80, nodePort 30080, selector app=web.",
+      "hint": "`kubectl -n svcnet-learn create service nodeport web-np --tcp=80:80 --node-port=30080` then set its selector to app=web (or edit), OR write YAML with `type: NodePort` and `nodePort: 30080`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-np, namespace: svcnet-learn }\nspec:\n  type: NodePort\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80, nodePort: 30080 } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-np NodePort port 80 -> 80, nodePort 30080, selector app=web",
+          "script": "validate/c2.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Headless Service",
+      "teach": "A **headless** Service sets `clusterIP: None` — no virtual IP; DNS returns the pod IPs directly. That one field is all that makes a Service headless.\n\n**Gotcha:** it's `None` (the string), not an empty value or omitting the field.",
+      "prompt": "Create a **headless** Service `web-hl` for `app=web` on `port: 80` (`clusterIP: None`).\n\nTarget: `web-hl` has `clusterIP: None` and selector app=web.",
+      "hint": "Set `clusterIP: None` in the Service spec.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-hl, namespace: svcnet-learn }\nspec:\n  clusterIP: None\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-hl headless (clusterIP: None), selector app=web",
+          "script": "validate/c3.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "ExternalName Service",
+      "teach": "An **ExternalName** Service maps a cluster DNS name to an external one via a CNAME. Set `type: ExternalName` and `externalName: db.example.com`.\n\n**Gotcha:** it needs no selector or ports — just the two fields.",
+      "prompt": "Create an **ExternalName** Service `db-ext` that points to `db.example.com`.\n\nTarget: `db-ext` type ExternalName, externalName `db.example.com`.",
+      "hint": "`kubectl -n svcnet-learn create service externalname db-ext --external-name db.example.com`.",
+      "solution": "kubectl -n svcnet-learn create service externalname db-ext --external-name db.example.com",
+      "verification": [
+        {
+          "id": "1",
+          "description": "db-ext type ExternalName -> db.example.com",
+          "script": "validate/c4.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

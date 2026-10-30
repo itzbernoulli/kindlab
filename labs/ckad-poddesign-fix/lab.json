@@ -1,0 +1,31 @@
+{
+  "id": "ckad-poddesign-fix",
+  "name": "Fix a Deployment that won't go Ready",
+  "type": "learn",
+  "objective": "CKAD › Application Design and Build + Observability. Drill EVERY pod-design corner harder than the exam: classic vs native sidecars, init ordering, all three probe types and handlers, lifecycle hooks + graceful shutdown, full securityContext hardening, QoS classes, the Downward API, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "pod-design"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a Deployment that won't go Ready",
+      "teach": "To diagnose a pod that's `Running` but never `Ready`, run `kubectl describe pod <p>` and read **Events** — that's almost always a **readiness probe** pointed at the wrong port/path, so it never answers. Compare the probe target to the port the container actually serves.\n\n**Gotcha:** fix the **Deployment** (its pod template), not the pod — then confirm with `kubectl rollout status`.",
+      "prompt": "Deployment `diag` in `pod-design` has 1 replica but it **never becomes Ready** (`kubectl -n pod-design get deploy diag` shows `0/1`). Diagnose the fault and fix it so the Deployment reports an available replica. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: Deployment `diag` has at least 1 available replica.",
+      "hint": "`kubectl -n pod-design describe pod -l app=diag` → the readiness probe is failing. Compare the probe's port to the port the container (`nginx:1.25`) actually serves on. Fix the Deployment's readiness probe (`kubectl -n pod-design edit deploy diag`), then watch `rollout status`.",
+      "solution": "# The readiness probe targets port 8080, but nginx serves on 80.\nkubectl -n pod-design patch deployment diag --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/httpGet/port\",\"value\":80}]'\nkubectl -n pod-design rollout status deployment/diag",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment diag has >=1 available replica (readiness fault fixed)",
+          "script": "validate/c9.sh",
+          "weightage": 10
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

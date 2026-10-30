@@ -1,0 +1,95 @@
+{
+  "id": "ckad-config-volumes-fix",
+  "name": "Mount config: volumes, secrets & projection",
+  "type": "learn",
+  "objective": "CKAD › Application Environment, Configuration & Security. Drill EVERY way to feed config into pods: single-key env, bulk envFrom + prefix, volume mounts with items/subPath, Secrets (env + volume + types), immutable, projected volumes, and a no-hint diagnose-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "config"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "ConfigMap as a volume (items)",
+      "teach": "**As a volume:** each ConfigMap key becomes a file under the mountPath. Use `items: [{key: K, path: p}]` to expose **only** specific keys, renamed to the given paths.\n\n**Gotcha:** with `items`, keys you don't list are NOT mounted — only the selected files appear.",
+      "prompt": "In `ckad-config`, create pod `cfg-vol` (`busybox:1.36`, sleep) that mounts ConfigMap `app-config` as a volume at `/etc/config`, exposing **only** key `APP_MODE` as a file named `mode`.\n\nTarget: a configMap volume (`app-config`) mounted at `/etc/config` with `items` mapping `APP_MODE` → `mode`.",
+      "hint": "Volume: `configMap: {name: app-config, items: [{key: APP_MODE, path: mode}]}`; mount it at `/etc/config`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: cfg-vol, namespace: ckad-config }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    volumeMounts: [ { name: cfg, mountPath: /etc/config } ]\n  volumes:\n  - name: cfg\n    configMap:\n      name: app-config\n      items: [ { key: APP_MODE, path: mode } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "cfg-vol: configMap app-config volume at /etc/config, item APP_MODE→mode",
+          "script": "validate/c3.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Secret as env + as a mounted volume",
+      "teach": "Secrets consume like ConfigMaps (swap `configMap*`→`secret*`): `secretKeyRef` for a single env var, and a **volume** (`secret: {secretName: s}`) where each key is a file. `defaultMode: 0400` restricts file perms.\n\n**Gotcha:** octal file modes show as **decimal** in the API — `0400` reads back as `256`.",
+      "prompt": "In `ckad-config`, create pod `sec-pod` (`busybox:1.36`, sleep):\n- env `KEY` from Secret `app-secret` key `API_KEY`\n- mount Secret `app-secret` as a volume at `/etc/secret` with `defaultMode: 0400`\n\nTarget: `KEY` ← app-secret/API_KEY; a secret volume (`app-secret`) at `/etc/secret` with defaultMode `0400`.",
+      "hint": "env uses `secretKeyRef`; the volume is `secret: {secretName: app-secret, defaultMode: 0400}`. (0400 shows as 256 in the API.)",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: sec-pod, namespace: ckad-config }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    env:\n    - name: KEY\n      valueFrom: { secretKeyRef: { name: app-secret, key: API_KEY } }\n    volumeMounts: [ { name: sec, mountPath: /etc/secret } ]\n  volumes:\n  - name: sec\n    secret:\n      secretName: app-secret\n      defaultMode: 0400\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sec-pod: env KEY←app-secret/API_KEY + secret volume at /etc/secret (mode 0400)",
+          "script": "validate/c4.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Immutable ConfigMap",
+      "teach": "`immutable: true` locks a ConfigMap/Secret so its data can't be edited. Set it in YAML, or on an existing object with `kubectl patch configmap x -p '{\"immutable\":true}'`.\n\n**Gotcha:** you can't un-set it — to change an immutable object you must **delete + recreate** it.",
+      "prompt": "In `ckad-config`, create an **immutable** ConfigMap `locked-config` with data `FOO=bar`.\n\nTarget: ConfigMap `locked-config` has `data.FOO=bar` and `immutable: true`.",
+      "hint": "`kubectl -n ckad-config create configmap locked-config --from-literal=FOO=bar`, then `kubectl -n ckad-config patch configmap locked-config -p '{\"immutable\":true}'`.",
+      "solution": "kubectl -n ckad-config create configmap locked-config --from-literal=FOO=bar\nkubectl -n ckad-config patch configmap locked-config -p '{\"immutable\":true}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "locked-config: FOO=bar and immutable:true",
+          "script": "validate/c5.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Projected volume (combine sources)",
+      "teach": "A **projected** volume combines multiple sources — `configMap`, `secret`, `downwardAPI` — into ONE directory at a single mountPath. Each source lists its own `items`.\n\n**Gotcha:** all sources share one directory, so two sources writing the same `path` collide.",
+      "prompt": "In `ckad-config`, create pod `proj-pod` (`busybox:1.36`, sleep) with a **projected** volume mounted at `/etc/proj` combining three sources:\n- ConfigMap `app-config` (item `APP_MODE` → `mode`)\n- Secret `app-secret` (item `API_KEY` → `key`)\n- downwardAPI (`metadata.name` → `podname`)\n\nTarget: a projected volume at `/etc/proj` with all three sources.",
+      "hint": "`volumes: [{name: proj, projected: {sources: [{configMap: {...}}, {secret: {...}}, {downwardAPI: {...}}]}}]`, mounted at /etc/proj.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: proj-pod, namespace: ckad-config }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    volumeMounts: [ { name: proj, mountPath: /etc/proj } ]\n  volumes:\n  - name: proj\n    projected:\n      sources:\n      - configMap: { name: app-config, items: [ { key: APP_MODE, path: mode } ] }\n      - secret: { name: app-secret, items: [ { key: API_KEY, path: key } ] }\n      - downwardAPI: { items: [ { path: podname, fieldRef: { fieldPath: metadata.name } } ] }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "proj-pod: projected volume at /etc/proj (configMap + secret + downwardAPI)",
+          "script": "validate/c6.sh",
+          "weightage": 15
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Diagnose & fix: a pod stuck on config",
+      "teach": "A pod referencing a **missing** ConfigMap key stays in **CreateContainerConfigError**. `kubectl describe pod <p>` Events show `couldn't find key <K> in ConfigMap`; patch it in: `kubectl patch configmap … -p '{\"data\":{\"K\":\"v\"}}'`.\n\n**Gotcha:** fix the ConfigMap, not the pod — the kubelet retries and starts the container, **no pod recreate** needed.",
+      "prompt": "Pod `brokencfg` in `ckad-config` is **not Running** — it's stuck because of a config reference. Diagnose and fix it so it runs. Do **not** delete the pod.\n\nTarget: pod `brokencfg` is `Running`.",
+      "hint": "`kubectl -n ckad-config describe pod brokencfg` → 'couldn't find key GREETING in ConfigMap app-config'. Add that key: `kubectl -n ckad-config patch configmap app-config -p '{\"data\":{\"GREETING\":\"hello\"}}'`.",
+      "solution": "# describe shows: couldn't find key GREETING in ConfigMap app-config\nkubectl -n ckad-config patch configmap app-config -p '{\"data\":{\"GREETING\":\"hello\"}}'\n# kubelet retries and the pod starts within a few seconds\nkubectl -n ckad-config get pod brokencfg",
+      "verification": [
+        {
+          "id": "1",
+          "description": "brokencfg is Running (missing ConfigMap key fixed at the source)",
+          "script": "validate/c7.sh",
+          "weightage": 15
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

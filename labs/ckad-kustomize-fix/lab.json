@@ -1,0 +1,81 @@
+{
+  "id": "ckad-kustomize-fix",
+  "name": "Customize manifests with Kustomize",
+  "type": "learn",
+  "objective": "CKAD › Application Deployment. Drill EVERY Helm and Kustomize corner harder than the exam: scaffold+install a release, override values with --set and a values file, inspect release state and revisions, render without installing, apply a Kustomize base, layer transforms (namePrefix + commonLabels + replicas), generate a ConfigMap, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "helm-kustomize"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Kustomize: apply a base",
+      "teach": "**Kustomize** customizes plain manifests with **no templating**: a `kustomization.yaml` lists `resources` and transforms. `kubectl apply -k <dir>` builds that kustomization and applies it. The base at `/tmp/kustomize-ckad` has Deployment `hello` and pins `namespace: kustomize-learn`.\n\n**Gotcha:** `-k` takes a **directory** (or git URL), not a file — `kubectl apply -k ./dir`, never `-k file.yaml`.",
+      "prompt": "Apply the Kustomize base at `/tmp/kustomize-ckad` to the cluster.\n\nTarget: Deployment `hello` exists in namespace `kustomize-learn`.",
+      "hint": "`kubectl apply -k /tmp/kustomize-ckad`, then `kubectl get deploy -n kustomize-learn`.",
+      "solution": "kubectl apply -k /tmp/kustomize-ckad\nkubectl get deploy hello -n kustomize-learn",
+      "setup": "setup/q6_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'hello' created in kustomize-learn from the base",
+          "script": "validate/q6_s1.sh",
+          "weightage": 11
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Kustomize: namePrefix + commonLabels + replicas",
+      "teach": "Kustomize transforms rewrite the built output without copying YAML. `namePrefix:` prepends to every resource name, `commonLabels:` stamps a label onto every resource (and selectors), and a `replicas:` entry patches a named workload's replica count.\n\n**Gotcha:** `commonLabels` also rewrites the Deployment's **selector** — immutable once created, so a label added later to a live Deployment can force a recreate.",
+      "prompt": "Edit `/tmp/kustomize-ckad/kustomization.yaml` to add three transforms, then re-apply with `kubectl apply -k`:\n- `namePrefix: prod-` (Deployment becomes `prod-hello`)\n- `commonLabels: {tier: frontend}`\n- `replicas:` set workload `hello` to **5**\n\nTarget: Deployment `prod-hello` exists in `kustomize-learn` with label `tier=frontend` and `spec.replicas: 5`.",
+      "hint": "Add `namePrefix: prod-`, `commonLabels:\\n  tier: frontend`, and `replicas:\\n- name: hello\\n  count: 5` to the kustomization, then `kubectl apply -k /tmp/kustomize-ckad`. Verify: `kubectl get deploy prod-hello -n kustomize-learn -o jsonpath='{.metadata.labels.tier} {.spec.replicas}'`.",
+      "solution": "cat >> /tmp/kustomize-ckad/kustomization.yaml <<'YAML'\nnamePrefix: prod-\ncommonLabels:\n  tier: frontend\nreplicas:\n- name: hello\n  count: 5\nYAML\nkubectl apply -k /tmp/kustomize-ckad\nkubectl get deploy prod-hello -n kustomize-learn -o jsonpath='{.metadata.labels.tier} {.spec.replicas}'   # frontend 5",
+      "verification": [
+        {
+          "id": "1",
+          "description": "prod-hello in kustomize-learn has label tier=frontend and replicas 5",
+          "script": "validate/q7_s1.sh",
+          "weightage": 11
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Kustomize: generate a ConfigMap",
+      "teach": "`configMapGenerator` builds a ConfigMap from literals or files, appending a content **hash** suffix to its name so a data change forces a rollout. `generatorOptions: {disableNameSuffixHash: true}` keeps a stable name when you need to reference it by a fixed value.\n\n**Gotcha:** the generated name also picks up `namePrefix`, so with `namePrefix: prod-` the ConfigMap `app-cfg` becomes `prod-app-cfg` (plus the hash unless disabled).",
+      "prompt": "Add a `configMapGenerator` to `/tmp/kustomize-ckad/kustomization.yaml` that creates ConfigMap `app-cfg` with literal `GREETING=hello`, and disable the name-hash suffix (`generatorOptions`). Re-apply with `kubectl apply -k`.\n\nTarget: a ConfigMap named `prod-app-cfg` (namePrefix applied, hash disabled) exists in `kustomize-learn` with `data.GREETING=hello`.",
+      "hint": "Append `configMapGenerator:\\n- name: app-cfg\\n  literals:\\n  - GREETING=hello` and `generatorOptions:\\n  disableNameSuffixHash: true`. With the existing `namePrefix: prod-` the result is `prod-app-cfg`. Verify: `kubectl get cm prod-app-cfg -n kustomize-learn -o jsonpath='{.data.GREETING}'`.",
+      "solution": "cat >> /tmp/kustomize-ckad/kustomization.yaml <<'YAML'\nconfigMapGenerator:\n- name: app-cfg\n  literals:\n  - GREETING=hello\ngeneratorOptions:\n  disableNameSuffixHash: true\nYAML\nkubectl apply -k /tmp/kustomize-ckad\nkubectl get cm prod-app-cfg -n kustomize-learn -o jsonpath='{.data.GREETING}'   # hello",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ConfigMap prod-app-cfg (hash disabled) in kustomize-learn has GREETING=hello",
+          "script": "validate/q8_s1.sh",
+          "weightage": 11
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Diagnose & fix: a broken kustomization",
+      "teach": "`kubectl apply -k <dir>` first **builds** the kustomization; if the build fails, nothing is applied and you get an error instead of resources. The usual causes: a `resources:` entry naming a file that doesn't exist, or a bad transform value.\n\n**Gotcha:** read the build error first (`kubectl kustomize <dir>`) — it names the exact missing file or field before anything reaches the cluster.",
+      "prompt": "The kustomization at `/tmp/kustomize-broken` **won't build** — `kubectl apply -k /tmp/kustomize-broken` errors and applies nothing. Diagnose the fault and fix the kustomization so the build succeeds and its Deployment is applied. Don't rewrite it from scratch — find and fix what's wrong.\n\nTarget: Deployment `api` exists in namespace `kustomize-learn` (built from the fixed `/tmp/kustomize-broken`).",
+      "hint": "`kubectl kustomize /tmp/kustomize-broken` shows the build error — `resources:` lists `deploy.yaml` but the file on disk is `deployment.yaml` (or vice versa). Make the `resources:` entry match the real filename, then `kubectl apply -k /tmp/kustomize-broken`.",
+      "solution": "# Build error: resources points at a file that doesn't exist.\nls /tmp/kustomize-broken\nkubectl kustomize /tmp/kustomize-broken   # shows the offending filename\n# Fix the resources entry to the real file name, then:\nperl -i -pe 's/deploy\\.yaml/deployment.yaml/' /tmp/kustomize-broken/kustomization.yaml\nkubectl apply -k /tmp/kustomize-broken\nkubectl get deploy api -n kustomize-learn",
+      "setup": "setup/q9_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment 'api' applied in kustomize-learn (broken kustomization fixed)",
+          "script": "validate/q9_s1.sh",
+          "weightage": 11
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

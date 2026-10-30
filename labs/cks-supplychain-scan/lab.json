@@ -1,0 +1,48 @@
+{
+  "id": "cks-supplychain-scan",
+  "name": "Scan images and manifests",
+  "type": "learn",
+  "objective": "CKS › Supply Chain Security (20%). Drill EVERY supply-chain corner harder than the exam: Trivy CVE scanning with severity gates, static manifest analysis with kubesec, digest pinning, banning :latest, ImagePullPolicy hardening, an approved-registry ValidatingAdmissionPolicy + binding, a VAP that bans :latest, and a no-hint diagnose-and-fix on a broken binding. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "supply-chain"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Scan an image with Trivy (severity-gated)",
+      "teach": "**Trivy** scans images for known **CVEs**. Run it as a one-shot **Job** (`trivy image <ref>`) and read the `Total:` summary from the pod logs. Narrow the report with `--severity HIGH,CRITICAL` so only the CVEs that matter surface.\n\n**Gotcha:** a Job pod must set `restartPolicy: Never` or `OnFailure` — the default `Always` is rejected.",
+      "prompt": "In namespace `cks-supply`, create a **Job** named `trivy-scan` running image `aquasec/trivy:latest` with args `image --severity HIGH,CRITICAL python:3.9.0` to scan an old Python image for HIGH/CRITICAL CVEs. Let it run to completion.\n\nTarget: Job `trivy-scan` has `succeeded >= 1`, its pod spec uses `restartPolicy: Never` (or `OnFailure`), and its logs contain Trivy CVE output (a `Total:` / `Vulnerabilities` summary).",
+      "hint": "`kubectl create job trivy-scan -n cks-supply --image=aquasec/trivy:latest -- image --severity HIGH,CRITICAL python:3.9.0`, then `kubectl -n cks-supply wait --for=condition=complete job/trivy-scan --timeout=240s` and read `kubectl -n cks-supply logs job/trivy-scan`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: trivy-scan\n  namespace: cks-supply\nspec:\n  backoffLimit: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: trivy\n        image: aquasec/trivy:latest\n        args: [\"image\",\"--severity\",\"HIGH,CRITICAL\",\"python:3.9.0\"]\nYAML\nkubectl -n cks-supply wait --for=condition=complete job/trivy-scan --timeout=240s\nkubectl -n cks-supply logs job/trivy-scan",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job trivy-scan: completed, restartPolicy Never/OnFailure, CVE output in logs",
+          "script": "validate/q1_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Static analysis with kubesec",
+      "teach": "**kubesec** does **static analysis** of a Kubernetes manifest, scoring its `securityContext` hardening. It needs the YAML *inside* the container, so mount the pre-seeded ConfigMap at `/manifests` and run `scan /manifests/pod.yaml` as a Job; the logs show a JSON `score`.\n\n**Gotcha:** the scan arg must match the mounted path (`/manifests/pod.yaml`) exactly, or kubesec errors on a missing file.",
+      "prompt": "A pod manifest is mounted at `/manifests/pod.yaml` via ConfigMap `kubesec-manifest` (seeded by setup). In `cks-supply`, create a **Job** named `kubesec-scan` using image `kubesec/kubesec:latest` with args `scan /manifests/pod.yaml`, mounting that ConfigMap at `/manifests`. Let it complete.\n\nTarget: Job `kubesec-scan` has `succeeded >= 1` and its logs contain a kubesec report (a `score` field).",
+      "hint": "Mount the `kubesec-manifest` ConfigMap as a volume at `/manifests`; args must be `[\"scan\",\"/manifests/pod.yaml\"]`. Then `kubectl -n cks-supply wait --for=condition=complete job/kubesec-scan --timeout=180s` and read the logs.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: kubesec-scan\n  namespace: cks-supply\nspec:\n  backoffLimit: 2\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: kubesec\n        image: kubesec/kubesec:latest\n        args: [\"scan\",\"/manifests/pod.yaml\"]\n        volumeMounts:\n        - name: m\n          mountPath: /manifests\n      volumes:\n      - name: m\n        configMap:\n          name: kubesec-manifest\nYAML\nkubectl -n cks-supply wait --for=condition=complete job/kubesec-scan --timeout=180s\nkubectl -n cks-supply logs job/kubesec-scan",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job kubesec-scan completed and produced a score/report",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
+      ],
+      "setup": "setup/q2_setup.sh"
+    }
+  ]
+}

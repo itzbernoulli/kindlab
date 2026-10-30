@@ -1,0 +1,48 @@
+{
+  "id": "cka-kubeadm-join-certs",
+  "name": "Join nodes & renew certificates",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration (25%). Drill EVERY node-level kubeadm corner harder than the exam: inspect component versions, read the kubelet config and static-pod manifests, mint a worker join token, perform the drain/uncordon maintenance dance, renew control-plane certificates, read an upgrade plan, and a no-hint diagnose-and-fix. All graded exactly on persistent node/cluster state.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "kubeadm"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Generate a worker join command",
+      "teach": "To add a worker, mint a fresh bootstrap token and print the full join line in one shot: `kubeadm token create --print-join-command`. This creates a Secret named `bootstrap-token-<id>` of type `bootstrap.kubernetes.io/token` in `kube-system`.\n\n**Gotcha:** find these Secrets by TYPE, not name — `kubectl -n kube-system get secrets --field-selector type=bootstrap.kubernetes.io/token`.",
+      "prompt": "On $CP, generate a fresh worker join command with kubeadm so a NEW bootstrap-token Secret is created in `kube-system`.\n\nTarget: strictly MORE bootstrap-token Secrets exist in `kube-system` than when the step started.",
+      "hint": "`docker exec \"$CP\" kubeadm token create --print-join-command`. Verify with `kubectl -n kube-system get secrets --field-selector type=bootstrap.kubernetes.io/token`.",
+      "solution": "docker exec \"$CP\" kubeadm token create --print-join-command\nkubectl -n kube-system get secrets --field-selector type=bootstrap.kubernetes.io/token",
+      "verification": [
+        {
+          "id": "1",
+          "description": "a NEW bootstrap-token Secret was created in kube-system (count increased)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 13
+        }
+      ],
+      "setup": "setup/q4_setup.sh"
+    },
+    {
+      "id": "2",
+      "title": "Renew control-plane certificates",
+      "teach": "kubeadm control-plane certs under `/etc/kubernetes/pki/` last ONE year. Check them with `kubeadm certs check-expiration`, then renew with `kubeadm certs renew apiserver` (or `renew all`), pushing NotAfter ~1 year out and writing a fresh cert (new serial).\n\n**Gotcha:** renewal rewrites the cert on disk but does NOT restart the static pod — the running apiserver keeps the old cert until its manifest is bounced.",
+      "prompt": "On $CP, check cert expiration, then renew the apiserver certificate so a fresh cert (new serial, NotAfter ~1 year out) is written.\n\nTarget: `/etc/kubernetes/pki/apiserver.crt` on $CP has a DIFFERENT serial than when the step started, and its NotAfter is >300 days out.",
+      "hint": "`docker exec \"$CP\" kubeadm certs check-expiration`, then `docker exec \"$CP\" kubeadm certs renew apiserver`. Confirm: `docker exec \"$CP\" openssl x509 -enddate -serial -noout -in /etc/kubernetes/pki/apiserver.crt`.",
+      "solution": "docker exec \"$CP\" kubeadm certs check-expiration\ndocker exec \"$CP\" kubeadm certs renew apiserver\ndocker exec \"$CP\" openssl x509 -enddate -serial -noout -in /etc/kubernetes/pki/apiserver.crt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "apiserver.crt serial changed AND NotAfter is >300 days out (renewed)",
+          "script": "validate/q6_s1.sh",
+          "weightage": 13
+        }
+      ],
+      "setup": "setup/q6_setup.sh"
+    }
+  ]
+}

@@ -4,6 +4,8 @@ A **kind-based CKA / CKAD / CKS practice bench** with real node access, structur
 
 Why it exists: hosted simulators run a single managed cluster with **no node access**, so a large slice of CKA/CKS (etcd, control-plane repair, kubelet, static pods, kube-bench, audit…) can't be graded. KindLab runs a **multi-node `kind` cluster** and its setup/validation scripts `docker exec` into the nodes — so those tasks become real, gradable labs. It also has **learn** labs (step-by-step lessons) and **timed exam / mock** modes (scored, pass/fail).
 
+The lab collection is **topic-first, cert-aware**: labs are organized by topic (cluster operations, RBAC, storage, …), with exams and mocks grouped by cert (CKAD, CKA, CKS). You can browse by topic (default) or switch to cert view.
+
 - **📘 Learn labs** — each step has a lesson, a guided task, a hint, and a reveal-solution. Self-paced; progress is "steps mastered." Master a topic by repetition.
 - **📝 Exam labs** — scored & timed, no hand-holding. Prove what you learned.
 - **🎯 Timed mock** — a shuffled, timed run scored against the real pass mark.
@@ -77,7 +79,8 @@ docker exec -it kindlab-control-plane bash   # node-level tasks
 ## CLI
 
 ```bash
-kindlab list                          # all labs, grouped: 📘 Learn + 📝 Exams
+kindlab list                          # all labs, grouped by topic (default)
+kindlab list --cert                   # all labs, grouped by cert (CKAD / CKA / CKS)
 
 # LEARN a section
 kindlab learn learn-cka-rbac          # lessons + guided tasks (seeds the cluster)
@@ -144,6 +147,34 @@ labs/<lab-id>/
   validate/qN_s1.sh   # one script per check; exit 0 = pass, stdout = the reason shown on failure
 ```
 Env available to scripts: `CP`, `W1`, `W2` (node names), `WORKERS`, `CTX`, `CTX2`, `KUBECONFIG`, `LAB_DIR`.
+
+### Lab metadata schema
+
+`lab.json` fields:
+- `name`, `type` (`"learn"` or `"exam"`), `questions` — the usual lab fields.
+- **`certs`** *(required)* — array of cert identifiers the lab belongs to. Valid values: `"CKAD"`, `"CKA"`, `"CKS"`. A lab may list multiple certs (e.g., `["CKAD", "CKA"]` for a cross-cert topic). The first cert (`certs[0]`) is the **primary** cert (used for display, mocks, cert-grouped browse).
+- **`topics`** *(optional)* — array of topic shelf keys the lab appears on. See the canonical list below. `topics[0]` is the **home shelf** (where the lab is listed first); later entries are cross-listings on additional shelves. Omit or use `[]` for exam/capstone labs, which then appear on the **Exams & Mocks** shelf.
+- **`troubleshooting`** *(optional)* — boolean. If `true`, the lab is **cross-listed** on the Troubleshooting shelf *in addition to* its topic shelf. Useful for debugging-focused labs or reference materials.
+- ~~`category`~~ — **deprecated / now derived**. Do NOT set this. `category` is auto-populated as `certs[0]` for display; authors should set `certs` instead.
+
+### Topic shelf keys (canonical list)
+
+A lab's `topics` array values must be keys from this list:
+
+`cluster-ops`, `kubeadm`, `etcd`, `rbac`, `scheduling`, `workloads`, `storage`, `config`, `pod-design`, `services`, `canary`, `networking`, `cni`, `observability`, `network-policy`, `pod-security`, `supply-chain`, `hardening`, `runtime-security`, `gateway-api`, `multicluster`, `images`, `helm-kustomize`, `crd`, `quotas`, `labels`
+
+Shelves are displayed in declaration order. (The pinned **Troubleshooting**, **Exams & Mocks**, and **Other** shelves appear at the end.)
+
+### Browse modes
+
+- **Topic view (default):** `kindlab list` or toggle in the web dashboard. Groups labs by topic shelf, then by cert within each shelf.
+- **Cert view:** `kindlab list --cert` or toggle in the web dashboard. Groups labs by cert (CKAD / CKA / CKS), then by topic within each cert.
+
+### Topic & cert mirrors (lib ↔ web)
+
+The canonical `TOPICS` and `CERTS` definitions live in **`lib/grouping.js`** (Node module). Because the browser has no bundler and cannot `require()` (zero-dependency rule), these definitions are **manually mirrored** in **`web/grouping.js`** as global variables. If you add, remove, or rename a topic in `lib/grouping.js`, you **must mirror the change** in `web/grouping.js` (same order, same keys). The test **`test/web-mirror.test.js`** fails if the two drift, so run `node --test` after any change to `lib/grouping.js` that touches topics or certs.
+
+---
 
 **Golden rule:** every Check re-runs **all** validators, so a lab is only sound if one final cluster state satisfies every step at once — never let a later step undo what an earlier step asserts. Grade transient actions (a rollout) on persistent evidence (ReplicaSet history), not the live value.
 

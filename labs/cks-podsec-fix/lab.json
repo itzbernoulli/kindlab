@@ -1,0 +1,32 @@
+{
+  "id": "cks-podsec-fix",
+  "name": "Fix a pod that won't start under hardening",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY pod-hardening corner harder than the exam: runAsNonRoot/runAsUser, drop-ALL capabilities, readOnlyRootFilesystem, seccomp RuntimeDefault, privilege-escalation lockdown, a fully restricted-compliant pod, Pod Security Admission (enforce + audit/warn, pinned), and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "pod-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a pod that won't start",
+      "teach": "A pod that fails `runAsNonRoot` sits in a non-Ready state; `kubectl describe pod <p>` Events show `container has runAsNonRoot and image will run as root` — the container set `runAsNonRoot: true` but no non-zero `runAsUser`, so the root image is rejected. Pin a non-zero `runAsUser`.\n\n**Gotcha:** fix the **securityContext** (add a non-zero `runAsUser`), not the image — a pod spec is immutable, so delete-and-recreate the pod with the fix.",
+      "prompt": "Pod `broken-app` in `cks-podsec` **never becomes Ready** — `kubectl -n cks-podsec get pod broken-app` shows it isn't running. Diagnose the securityContext fault and fix it so the pod runs as a non-root UID.\n\nTarget: a pod named `broken-app` is `Running` with `runAsNonRoot=true` and a non-zero `runAsUser`.",
+      "hint": "`kubectl -n cks-podsec describe pod broken-app` → 'container has runAsNonRoot and image will run as root'. It sets `runAsNonRoot: true` but no `runAsUser`. Delete it and recreate with `runAsUser: 1000` added.",
+      "solution": "# describe shows: container has runAsNonRoot and image will run as root (0)\nkubectl -n cks-podsec delete pod broken-app --force --grace-period=0\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: broken-app, namespace: cks-podsec }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\n    securityContext:\n      runAsNonRoot: true\n      runAsUser: 1000\nYAML",
+      "setup": "setup/q8_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "broken-app Running with runAsNonRoot + non-zero runAsUser",
+          "script": "validate/c8.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

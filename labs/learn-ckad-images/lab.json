@@ -3,54 +3,89 @@
   "name": "Learn: Build, Commit, OCI, Save & Push Images",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Application Design and Build (20%) + supply chain. The full image lifecycle: build from a Dockerfile, snapshot a running container with commit, modify/tag, save to a .tgz, export to the OCI format, load into the cluster and run it, and push to a registry.",
-  "description": "Seven practicals across the whole image toolchain — Dockerfile build, docker commit, OCI-format export, save/load, and registry push — graded against your host Docker + the kindlab cluster.",
+  "objective": "CKAD \u203a Application Design and Build (20%) + supply chain. The full image lifecycle: build from a Dockerfile, snapshot a running container with commit, modify/tag, save to a .tgz, export to the OCI format, load into the cluster and run it, and push to a registry.",
+  "description": "Seven practicals across the whole image toolchain \u2014 Dockerfile build, docker commit, OCI-format export, save/load, and registry push \u2014 graded against your host Docker + the kindlab cluster.",
   "questions": [
     {
       "id": "1",
       "title": "Build an image from a Dockerfile",
-      "teach": "Build an image from a **Dockerfile** plus a **build context** (the directory you hand the builder): `docker build -t name:tag <context>`. The `-t` names and tags the result in one shot.\n\n**Gotcha:** the context path is positional, not the Dockerfile path — `.` means the current dir, not the Dockerfile's dir. Skip `-t` and you get a dangling `<none>:<none>` image.",
+      "teach": "Build an image from a **Dockerfile** plus a **build context** (the directory you hand the builder): `docker build -t name:tag <context>`. The `-t` names and tags the result in one shot.\n\n**Gotcha:** the context path is positional, not the Dockerfile path \u2014 `.` means the current dir, not the Dockerfile's dir. Skip `-t` and you get a dangling `<none>:<none>` image.",
       "prompt": "A build context is prepared at `/tmp/kindlab-img` (a `Dockerfile` + `hello.txt`). Build an image tagged `myapp:1.0` from it.\n\nTarget: `docker image inspect myapp:1.0` succeeds and the image carries the Dockerfile's `LABEL stage=base`.",
-      "hint": "`docker build -t myapp:1.0 /tmp/kindlab-img` — then `docker image inspect myapp:1.0` to confirm it exists.",
+      "hint": "`docker build -t myapp:1.0 /tmp/kindlab-img` \u2014 then `docker image inspect myapp:1.0` to confirm it exists.",
       "solution": "docker build -t myapp:1.0 /tmp/kindlab-img\ndocker image inspect myapp:1.0 --format '{{ index .Config.Labels \"stage\" }}'   # base",
       "setup": "setup/q0_setup.sh",
-      "verification": [ { "id": "1", "description": "image myapp:1.0 built from the provided Dockerfile", "script": "validate/q1_s1.sh", "weightage": 15 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "image myapp:1.0 built from the provided Dockerfile",
+          "script": "validate/q1_s1.sh",
+          "weightage": 15
+        }
+      ]
     },
     {
       "id": "2",
       "title": "Commit a running container into an image",
-      "teach": "`docker commit <container> name:tag` snapshots a running container's current filesystem into a new image — a quick way to capture ad-hoc state without a Dockerfile.\n\n**Gotcha:** commit captures only the container's writable layer; it does **not** include mounted volumes, and the result keeps the base image's `CMD`/`ENV` unless you override them with `--change`.",
+      "teach": "`docker commit <container> name:tag` snapshots a running container's current filesystem into a new image \u2014 a quick way to capture ad-hoc state without a Dockerfile.\n\n**Gotcha:** commit captures only the container's writable layer; it does **not** include mounted volumes, and the result keeps the base image's `CMD`/`ENV` unless you override them with `--change`.",
       "prompt": "A container named `appbox` (busybox) is already running. Snapshot its current state into an image named `committed:1.0` using `docker commit`.\n\nTarget: `docker image inspect committed:1.0` succeeds.",
       "hint": "`docker commit appbox committed:1.0`, then `docker image inspect committed:1.0`.",
       "solution": "docker commit appbox committed:1.0\ndocker image inspect committed:1.0 --format '{{.Id}}'",
-      "verification": [ { "id": "1", "description": "running container 'appbox' committed to image committed:1.0", "script": "validate/qc_commit.sh", "weightage": 15 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "running container 'appbox' committed to image committed:1.0",
+          "script": "validate/qc_commit.sh",
+          "weightage": 15
+        }
+      ]
     },
     {
       "id": "3",
       "title": "Modify the image: add a label and tag",
-      "teach": "You can stamp a label onto an image at build time without touching the Dockerfile: `docker build -t myapp:2.0 --label version=2 <context>`. It lands under `.Config.Labels`, the same place a Dockerfile `LABEL` would.\n\n**Gotcha:** `--label` writes config metadata, not a new filesystem layer — verify with `docker image inspect --format '{{ index .Config.Labels \"version\" }}'`, not `docker history`.",
+      "teach": "You can stamp a label onto an image at build time without touching the Dockerfile: `docker build -t myapp:2.0 --label version=2 <context>`. It lands under `.Config.Labels`, the same place a Dockerfile `LABEL` would.\n\n**Gotcha:** `--label` writes config metadata, not a new filesystem layer \u2014 verify with `docker image inspect --format '{{ index .Config.Labels \"version\" }}'`, not `docker history`.",
       "prompt": "Rebuild the same context as `myapp:2.0`, adding an image label `version=2` **via the build flag** (don't edit the Dockerfile).\n\nTarget: image `myapp:2.0` exists and its config label `version` equals `2`.",
       "hint": "`docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img`. Verify: `docker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'`.",
       "solution": "docker build -t myapp:2.0 --label version=2 /tmp/kindlab-img\ndocker image inspect myapp:2.0 --format '{{ index .Config.Labels \"version\" }}'   # 2",
-      "verification": [ { "id": "1", "description": "image myapp:2.0 built with label version=2", "script": "validate/q2_s1.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "image myapp:2.0 built with label version=2",
+          "script": "validate/q2_s1.sh",
+          "weightage": 14
+        }
+      ]
     },
     {
       "id": "4",
       "title": "Save the image to a .tgz tarball",
-      "teach": "`docker save name:tag` writes an image (all layers + metadata) to a tarball so it can move between machines without a registry; reload it with `docker load -i`. The archive holds a `manifest.json`.\n\n**Gotcha:** `docker save` produces an **uncompressed** tar — pipe through `gzip` to get a genuine `.tgz`. Just renaming a plain tar to `.tgz` does not compress it.",
+      "teach": "`docker save name:tag` writes an image (all layers + metadata) to a tarball so it can move between machines without a registry; reload it with `docker load -i`. The archive holds a `manifest.json`.\n\n**Gotcha:** `docker save` produces an **uncompressed** tar \u2014 pipe through `gzip` to get a genuine `.tgz`. Just renaming a plain tar to `.tgz` does not compress it.",
       "prompt": "Save the `myapp:2.0` image to a gzipped tarball at `/tmp/kindlab-img/myapp-2.0.tgz`.\n\nTarget: the file exists and is a valid docker image archive (contains `manifest.json`).",
       "hint": "`docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz`. Check it: `tar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json`.",
       "solution": "docker save myapp:2.0 | gzip > /tmp/kindlab-img/myapp-2.0.tgz\ntar -tzf /tmp/kindlab-img/myapp-2.0.tgz | grep manifest.json   # present",
-      "verification": [ { "id": "1", "description": "myapp:2.0 saved to a valid gzipped Docker image archive", "script": "validate/q3_s1.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "myapp:2.0 saved to a valid gzipped Docker image archive",
+          "script": "validate/q3_s1.sh",
+          "weightage": 14
+        }
+      ]
     },
     {
       "id": "5",
       "title": "Export to the OCI image format",
-      "teach": "The vendor-neutral **OCI image layout** is the open-standard archive format, recognised by an `oci-layout` marker plus `index.json`. Build straight to it with `docker buildx build --output type=oci,dest=out.tar <context>`.\n\n**Gotcha:** `docker save` writes the **Docker** format (`manifest.json`), **not** OCI — a common trap when a task says 'OCI'. Use buildx (or skopeo) instead.",
+      "teach": "The vendor-neutral **OCI image layout** is the open-standard archive format, recognised by an `oci-layout` marker plus `index.json`. Build straight to it with `docker buildx build --output type=oci,dest=out.tar <context>`.\n\n**Gotcha:** `docker save` writes the **Docker** format (`manifest.json`), **not** OCI \u2014 a common trap when a task says 'OCI'. Use buildx (or skopeo) instead.",
       "prompt": "Export the build context at `/tmp/kindlab-img` to an **OCI-format** archive at `/tmp/kindlab-img/myapp-oci.tar` using buildx.\n\nTarget: the archive is a valid OCI image layout (contains `oci-layout` and `index.json`).",
       "hint": "`docker buildx build --output type=oci,dest=/tmp/kindlab-img/myapp-oci.tar /tmp/kindlab-img`. Verify: `tar -tf /tmp/kindlab-img/myapp-oci.tar | grep -E 'oci-layout|index.json'` (NOT `docker save`, which is Docker format).",
       "solution": "docker buildx build --output type=oci,dest=/tmp/kindlab-img/myapp-oci.tar /tmp/kindlab-img\ntar -tf /tmp/kindlab-img/myapp-oci.tar | grep -E 'oci-layout|index.json'   # both present",
-      "verification": [ { "id": "1", "description": "myapp-oci.tar is a valid OCI image layout (oci-layout + index.json)", "script": "validate/qc_oci.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "myapp-oci.tar is a valid OCI image layout (oci-layout + index.json)",
+          "script": "validate/qc_oci.sh",
+          "weightage": 14
+        }
+      ]
     },
     {
       "id": "6",
@@ -59,16 +94,36 @@
       "prompt": "Make `myapp:2.0` available to the `kindlab` cluster, then in namespace `images-learn` run a pod named `myapp` using it, with `imagePullPolicy: IfNotPresent`.\n\nTarget: pod `myapp` in `images-learn` is `Running` using image `myapp:2.0`.",
       "hint": "`kind load docker-image myapp:2.0 --name kindlab`, then `kubectl -n images-learn run myapp --image=myapp:2.0 --image-pull-policy=IfNotPresent`.",
       "solution": "kind load docker-image myapp:2.0 --name kindlab\nkubectl -n images-learn run myapp --image=myapp:2.0 --image-pull-policy=IfNotPresent\nkubectl -n images-learn get pod myapp -o wide",
-      "verification": [ { "id": "1", "description": "pod myapp is Running from the local image myapp:2.0", "script": "validate/q4_s1.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod myapp is Running from the local image myapp:2.0",
+          "script": "validate/q4_s1.sh",
+          "weightage": 14
+        }
+      ]
     },
     {
       "id": "7",
       "title": "Push the image to a registry",
-      "teach": "To push to a registry you first retag the image so its name embeds the registry host, then push: `docker tag myapp:2.0 localhost:5001/myapp:2.0` then `docker push localhost:5001/myapp:2.0`. Check it landed via the HTTP API: `GET /v2/_catalog`.\n\n**Gotcha:** the registry host must be in the image name — a bare `docker push myapp:2.0` goes to Docker Hub, not your local registry.",
+      "teach": "To push to a registry you first retag the image so its name embeds the registry host, then push: `docker tag myapp:2.0 localhost:5001/myapp:2.0` then `docker push localhost:5001/myapp:2.0`. Check it landed via the HTTP API: `GET /v2/_catalog`.\n\n**Gotcha:** the registry host must be in the image name \u2014 a bare `docker push myapp:2.0` goes to Docker Hub, not your local registry.",
       "prompt": "A local registry runs at `localhost:5001`. Tag `myapp:2.0` as `localhost:5001/myapp:2.0` and push it.\n\nTarget: the registry's catalog lists repo `myapp` with tag `2.0`.",
       "hint": "`docker tag myapp:2.0 localhost:5001/myapp:2.0` then `docker push localhost:5001/myapp:2.0`. Confirm: `curl -s localhost:5001/v2/_catalog` and `curl -s localhost:5001/v2/myapp/tags/list`.",
       "solution": "docker tag myapp:2.0 localhost:5001/myapp:2.0\ndocker push localhost:5001/myapp:2.0\ncurl -s localhost:5001/v2/_catalog              # {\"repositories\":[\"myapp\"]}\ncurl -s localhost:5001/v2/myapp/tags/list       # {\"name\":\"myapp\",\"tags\":[\"2.0\"]}",
-      "verification": [ { "id": "1", "description": "myapp:2.0 pushed to the local registry (catalog + tag)", "script": "validate/q5_s1.sh", "weightage": 14 } ]
+      "verification": [
+        {
+          "id": "1",
+          "description": "myapp:2.0 pushed to the local registry (catalog + tag)",
+          "script": "validate/q5_s1.sh",
+          "weightage": 14
+        }
+      ]
     }
+  ],
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "images"
   ]
 }

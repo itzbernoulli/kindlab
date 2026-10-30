@@ -1,0 +1,63 @@
+{
+  "id": "cka-etcd-manifest-fix",
+  "name": "Read etcd's manifest + fix a bad backup",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY corner of the etcd backup/restore task harder than the exam: snapshot save over TLS, local status/verify, restore into a fresh data dir, restore with cluster identity flags, reading the static-Pod manifest for the data dir and TLS config, a no-hint diagnose-and-fix on a bad snapshot, and proving the control plane survived. Graded exactly, on node state — never endangering the live cluster.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "etcd"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Locate the etcd-data hostPath (the repoint target)",
+      "teach": "On a real restore the final step points etcd at the restored dir. etcd is a **static Pod** defined by `/etc/kubernetes/manifests/etcd.yaml`; inside it the `etcd-data` **volume** is a `hostPath` whose `path:` is the live data dir (`/var/lib/etcd`). Here you only **locate** that path and record it — editing the manifest would bounce single-node etcd.\n\n**Gotcha:** the data dir is the `hostPath.path` of the volume named `etcd-data`, not the container `mountPath` (which may differ).",
+      "prompt": "Read `/etc/kubernetes/manifests/etcd.yaml` on `$CP`, find the `hostPath.path` of the `etcd-data` volume, and write exactly that path into `/opt/etcd-datadir.txt` on `$CP`. Do NOT modify the manifest.\n\nTarget: `/opt/etcd-datadir.txt` on `$CP` contains `/var/lib/etcd` and the live manifest is unchanged.",
+      "hint": "`docker exec \"$CP\" cat /etc/kubernetes/manifests/etcd.yaml` and look under `volumes:` for the `etcd-data` volume's `hostPath.path`. Then record it: `docker exec \"$CP\" sh -c 'echo /var/lib/etcd > /opt/etcd-datadir.txt'`.",
+      "solution": "docker exec \"$CP\" cat /etc/kubernetes/manifests/etcd.yaml | grep -B2 'name: etcd-data'\n# volumes: ... - hostPath: { path: /var/lib/etcd } name: etcd-data\ndocker exec \"$CP\" sh -c 'echo /var/lib/etcd > /opt/etcd-datadir.txt'\ndocker exec \"$CP\" cat /opt/etcd-datadir.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/opt/etcd-datadir.txt holds the etcd-data hostPath (/var/lib/etcd); live manifest unchanged",
+          "script": "validate/q5_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Record the etcd client endpoint from the manifest",
+      "teach": "To snapshot or query etcd you need its **client endpoint** — the `--listen-client-urls` / `--advertise-client-urls` flag in the manifest's etcd command, which is an `https://…:2379` URL. Reading flags straight from the manifest is how you recover the exact endpoint and cert paths when they aren't the defaults.\n\n**Gotcha:** client traffic uses port **2379**; **2380** is the peer port — snapshotting against 2380 fails.",
+      "prompt": "From `/etc/kubernetes/manifests/etcd.yaml` on `$CP`, find the etcd **client** URL (the `--advertise-client-urls` value, an `https://…:2379` address) and write exactly that URL into `/opt/etcd-endpoint.txt` on `$CP`. Do NOT modify the manifest.\n\nTarget: `/opt/etcd-endpoint.txt` contains an `https://…:2379` client URL.",
+      "hint": "`docker exec \"$CP\" grep advertise-client-urls /etc/kubernetes/manifests/etcd.yaml` — take the https://…:2379 value and write it: `docker exec \"$CP\" sh -c 'echo https://127.0.0.1:2379 > /opt/etcd-endpoint.txt'` (use the actual value from the manifest).",
+      "solution": "docker exec \"$CP\" grep -E 'advertise-client-urls|listen-client-urls' /etc/kubernetes/manifests/etcd.yaml\nURL=$(docker exec \"$CP\" sh -c \"grep -oE 'https://[0-9.]+:2379' /etc/kubernetes/manifests/etcd.yaml | head -1\")\ndocker exec \"$CP\" sh -c \"echo $URL > /opt/etcd-endpoint.txt\"\ndocker exec \"$CP\" cat /opt/etcd-endpoint.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/opt/etcd-endpoint.txt holds an https client URL on port 2379",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Diagnose & fix: a backup that won't verify",
+      "teach": "Never ship a backup you haven't verified. A truncated or garbage file passes `ls` but fails `etcdutl snapshot status` — that is your signal the backup is unusable. The fix is to take a **real** snapshot from the live etcd and replace the bad file.\n\n**Gotcha:** file size alone proves nothing — only `etcdutl snapshot status` (a non-zero revision) confirms a usable snapshot.",
+      "prompt": "A teammate left a backup at `/opt/snap-bad.db` on `$CP`, but it **won't restore**. Diagnose why, then produce a known-good snapshot at `/opt/snap-fixed.db` on `$CP` (take a fresh one from the live etcd). Do NOT just copy the bad file.\n\nTarget: `/opt/snap-fixed.db` on `$CP` passes `etcdutl snapshot status` with a non-zero revision.",
+      "hint": "Confirm it's bad: copy /opt/snap-bad.db into /var/lib/etcd and run `etcdutl snapshot status` on it — it errors. Then take a real snapshot: `etcdctl ... snapshot save /var/lib/etcd/snap-fixed.db` and `docker exec \"$CP\" cp /var/lib/etcd/snap-fixed.db /opt/snap-fixed.db`.",
+      "solution": "# Diagnose: the bad file is not a valid snapshot.\nPOD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}')\ndocker exec \"$CP\" cp /opt/snap-bad.db /var/lib/etcd/.bad.db\nkubectl -n kube-system exec \"$POD\" -- etcdutl snapshot status /var/lib/etcd/.bad.db   # errors\ndocker exec \"$CP\" rm -f /var/lib/etcd/.bad.db\n# Fix: take a real snapshot and place it at /opt/snap-fixed.db.\nkubectl -n kube-system exec \"$POD\" -- etcdctl \\\n  --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /var/lib/etcd/snap-fixed.db\ndocker exec \"$CP\" cp /var/lib/etcd/snap-fixed.db /opt/snap-fixed.db",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/opt/snap-fixed.db is a valid snapshot (non-zero revision), distinct from the bad file",
+          "script": "validate/q7_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

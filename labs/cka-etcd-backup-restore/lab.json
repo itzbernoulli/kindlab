@@ -1,0 +1,95 @@
+{
+  "id": "cka-etcd-backup-restore",
+  "name": "Back up and restore etcd",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY corner of the etcd backup/restore task harder than the exam: snapshot save over TLS, local status/verify, restore into a fresh data dir, restore with cluster identity flags, reading the static-Pod manifest for the data dir and TLS config, a no-hint diagnose-and-fix on a bad snapshot, and proving the control plane survived. Graded exactly, on node state — never endangering the live cluster.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "etcd"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Take a fresh etcd snapshot over TLS",
+      "teach": "A backup is a point-in-time **snapshot** from `etcdctl snapshot save <file>`. It talks to a *running* etcd over TLS, so it needs `--endpoints=https://127.0.0.1:2379` plus `--cacert`, `--cert`, `--key` from `/etc/kubernetes/pki/etcd/`. Save under the mounted `/var/lib/etcd` so the file lands on `$CP`, then copy it to `/opt/snap.db`.\n\n**Gotcha:** drop any TLS flag and etcdctl fails with `context deadline exceeded` — it never even reaches etcd.",
+      "prompt": "Take a fresh etcd snapshot and place it at `/opt/snap.db` on node `$CP`.\n\nSave from the etcd Pod to `/var/lib/etcd/snap.db` (using the endpoint + TLS flags), then copy it to `/opt/snap.db` on `$CP`.\n\nTarget: a valid, non-trivial etcd snapshot exists at `/opt/snap.db` on `$CP`.",
+      "hint": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}'); then `kubectl -n kube-system exec $POD -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /var/lib/etcd/snap.db`; finally `docker exec \"$CP\" cp /var/lib/etcd/snap.db /opt/snap.db`.",
+      "solution": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}')\nkubectl -n kube-system exec \"$POD\" -- etcdctl \\\n  --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /var/lib/etcd/snap.db\ndocker exec \"$CP\" cp /var/lib/etcd/snap.db /opt/snap.db\ndocker exec \"$CP\" ls -l /opt/snap.db",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "a valid, non-trivial etcd snapshot exists at /opt/snap.db on $CP",
+          "script": "validate/q1_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Verify the snapshot (status, locally)",
+      "teach": "Before trusting a backup, verify it. `etcdutl snapshot status <file>` reads the file **locally** — no running etcd, no TLS flags — and prints hash, revision, total keys, and size. A healthy snapshot reports a **non-zero revision**; a truncated file errors out. Add `--write-out=table` for the readable table.\n\n**Gotcha:** `--write-out=table` goes **before** the `snapshot` subcommand, not after it.",
+      "prompt": "Verify the snapshot you saved at `/var/lib/etcd/snap.db` using `etcdutl snapshot status` (via the etcd Pod, which can see that mounted path), and confirm it reports a non-zero revision.\n\nTarget: `etcdutl snapshot status` succeeds and reports a hash and a non-zero revision for the snapshot.",
+      "hint": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}'); then `kubectl -n kube-system exec $POD -- etcdutl --write-out=table snapshot status /var/lib/etcd/snap.db`. The flag goes before the subcommand for the table output.",
+      "solution": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}')\nkubectl -n kube-system exec \"$POD\" -- etcdutl --write-out=table snapshot status /var/lib/etcd/snap.db\n# +----------+----------+------------+------------+---------+\n# |   HASH   | REVISION | TOTAL KEYS | TOTAL SIZE | VERSION |\n# +----------+----------+------------+------------+---------+",
+      "verification": [
+        {
+          "id": "1",
+          "description": "etcdutl snapshot status succeeds (hash + non-zero revision) on the saved snapshot",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Restore into a NEW data directory",
+      "teach": "Restoring **never** overwrites the live data dir. `etcdutl snapshot restore <file> --data-dir <newdir>` rebuilds a fresh data tree with a `member/` subdir (`snap/` + `wal/`). It is offline and local — no `--endpoints`/TLS flags. Target a path under the mounted `/var/lib/etcd/` so it lands on `$CP`.\n\n**Gotcha:** the target `--data-dir` must NOT already exist, or the restore refuses with `data-dir already exists`.",
+      "prompt": "Restore `/var/lib/etcd/snap.db` into a new data directory `/var/lib/etcd/etcd-restore` (via the etcd Pod). Do NOT touch the live `/var/lib/etcd/member`.\n\nTarget: directory `/var/lib/etcd/etcd-restore` exists on `$CP` and contains `member/snap` and `member/wal`; the live `/var/lib/etcd/member` is intact.",
+      "hint": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}'); then `kubectl -n kube-system exec $POD -- etcdutl snapshot restore /var/lib/etcd/snap.db --data-dir /var/lib/etcd/etcd-restore`. Verify on the host: `docker exec \"$CP\" ls /var/lib/etcd/etcd-restore/member`.",
+      "solution": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}')\nkubectl -n kube-system exec \"$POD\" -- etcdutl snapshot restore /var/lib/etcd/snap.db --data-dir /var/lib/etcd/etcd-restore\ndocker exec \"$CP\" ls -la /var/lib/etcd/etcd-restore/member   # snap/ wal/",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/var/lib/etcd/etcd-restore exists on $CP with member/snap and member/wal; live data dir intact",
+          "script": "validate/q3_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Restore with cluster-identity flags",
+      "teach": "A real restore that re-forms a cluster needs the member's identity baked in: `--name`, `--initial-cluster <name>=<peerURL>`, and `--initial-advertise-peer-urls <peerURL>`. These are written into the restored `member/` so etcd comes up with the right node name and peer URL instead of the defaults.\n\n**Gotcha:** `--name` must match the `--initial-cluster` entry key exactly, or etcd won't recognize itself on start.",
+      "prompt": "Restore `/var/lib/etcd/snap.db` again into `/var/lib/etcd/etcd-restore2`, this time pinning the member identity:\n- `--name=$CP`\n- `--initial-cluster=$CP=https://127.0.0.1:2380`\n- `--initial-advertise-peer-urls=https://127.0.0.1:2380`\n\nTarget: `/var/lib/etcd/etcd-restore2/member` exists on `$CP`, and the restore was invoked with the three identity flags.",
+      "hint": "POD=...; `kubectl -n kube-system exec $POD -- etcdutl snapshot restore /var/lib/etcd/snap.db --name \"$CP\" --initial-cluster \"$CP=https://127.0.0.1:2380\" --initial-advertise-peer-urls https://127.0.0.1:2380 --data-dir /var/lib/etcd/etcd-restore2`. The $CP node name is the member name here.",
+      "solution": "POD=$(kubectl -n kube-system get pods -l component=etcd -o jsonpath='{.items[0].metadata.name}')\nkubectl -n kube-system exec \"$POD\" -- etcdutl snapshot restore /var/lib/etcd/snap.db \\\n  --name \"$CP\" \\\n  --initial-cluster \"$CP=https://127.0.0.1:2380\" \\\n  --initial-advertise-peer-urls https://127.0.0.1:2380 \\\n  --data-dir /var/lib/etcd/etcd-restore2\ndocker exec \"$CP\" ls -la /var/lib/etcd/etcd-restore2/member",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/var/lib/etcd/etcd-restore2/member exists (restore with --name/--initial-cluster/--initial-advertise-peer-urls)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Confirm the control plane survived",
+      "teach": "You restored into *new* dirs and left the live manifest alone, so the cluster was never at risk — now prove it. `kubectl get --raw=/healthz` returns `ok` only when the apiserver's etcd backend is healthy. Build the habit of re-checking health after any etcd operation.\n\n**Gotcha:** after a real restore + kubelet bounce a transient non-`ok` is normal; a persistent one means the data dir or manifest is wrong.",
+      "prompt": "Confirm the control plane survived the exercise: the apiserver (and therefore etcd) is still healthy, and your restored data dir from step 3 is present.\n\nTarget: `kubectl get --raw=/healthz` returns `ok` and `/var/lib/etcd/etcd-restore/member` still exists.",
+      "hint": "`kubectl get --raw=/healthz` should print `ok`; `kubectl get nodes` should show the control-plane Ready. The check also confirms your step-3 restore dir is still present.",
+      "solution": "kubectl get --raw=/healthz   # ok\nkubectl get nodes            # control-plane Ready",
+      "verification": [
+        {
+          "id": "1",
+          "description": "apiserver /healthz is ok and the restored data dir is present (restore never broke the cluster)",
+          "script": "validate/q8_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

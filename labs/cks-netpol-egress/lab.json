@@ -1,0 +1,46 @@
+{
+  "id": "cks-netpol-egress",
+  "name": "NetworkPolicy: control egress",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY NetworkPolicy corner harder than the exam: default-deny ingress & egress, allow-by-pod-label, allow-by-namespace, the AND-vs-OR peer trap, port+protocol scoping, ipBlock with except, allow-DNS, and a no-hint diagnose-and-fix. Graded exactly on the policy spec, per requirement. (kindnet does not enforce policies, so grading is on the authored spec.)",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "network-policy"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Default-deny egress + allow DNS",
+      "teach": "Egress isolation mirrors ingress: empty `podSelector`, `policyTypes: [Egress]`, and only the egress rules you need. Blocking all egress breaks **DNS**, so you allow port 53 to `kube-system` (CoreDNS) via a `to` `namespaceSelector` plus `ports`.\n\n**Gotcha:** CoreDNS answers on port 53 over **both UDP and TCP** — list both; UDP alone fails on large responses.",
+      "prompt": "In `netpol-learn`, create a NetworkPolicy `default-deny-egress-allow-dns` that selects **all** pods, is egress-isolated, and allows egress **only** to port 53 (UDP and TCP) of `kube-system`.\n\nTarget: empty `podSelector`, `policyTypes: [Egress]`, one egress rule with a `to` `namespaceSelector` matching `kube-system` and `ports` UDP/53 and TCP/53.",
+      "hint": "`podSelector: {}`, `policyTypes: [Egress]`, then `egress: [{ to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } }], ports: [{protocol: UDP, port: 53},{protocol: TCP, port: 53}] }]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: default-deny-egress-allow-dns\n  namespace: netpol-learn\nspec:\n  podSelector: {}\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - namespaceSelector:\n        matchLabels:\n          kubernetes.io/metadata.name: kube-system\n    ports:\n    - protocol: UDP\n      port: 53\n    - protocol: TCP\n      port: 53\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "default-deny-egress-allow-dns: empty podSelector, Egress, DNS UDP+TCP/53 to kube-system",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Restrict egress to a specific pod and port",
+      "teach": "For least privilege, pin egress to the exact destination a workload needs: a `to` `podSelector` matching the target pods plus the exact `ports`. A `to` `podSelector` alone matches destination pods **in the policy's own namespace**.\n\n**Gotcha:** this policy covers only the DB hop — the pod still needs the separate DNS allow (port 53) or name resolution breaks before it reaches the destination.",
+      "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-egress-to-db` that selects pods labelled `app=web` and allows egress **only** to pods labelled `app=db` on **TCP port 5432**.\n\nTarget: `podSelector` app=web; `policyTypes: [Egress]`; one egress rule with a `to` `podSelector` matching `app=db` and `ports: [{protocol: TCP, port: 5432}]`.",
+      "hint": "`podSelector.matchLabels.app: web`, `egress: [{ to: [{ podSelector: { matchLabels: { app: db } } }], ports: [{ protocol: TCP, port: 5432 }] }]`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-egress-to-db\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Egress\n  egress:\n  - to:\n    - podSelector:\n        matchLabels:\n          app: db\n    ports:\n    - protocol: TCP\n      port: 5432\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "allow-egress-to-db: app=web → podSelector app=db on TCP/5432",
+          "script": "validate/q6_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ]
+}

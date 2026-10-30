@@ -1,0 +1,32 @@
+{
+  "id": "cks-hardening-rbac-fix",
+  "name": "Fix RBAC that grants the wrong access",
+  "type": "learn",
+  "objective": "CKS › Cluster + System Hardening (15% + 15%). Drill EVERY hardening corner harder than the exam on a real multi-node kind cluster: control-plane manifest perms, kubelet read-only port + anonymous-auth + authz mode, two apiserver admission/flag hardenings, least-privilege RBAC, ServiceAccount token hardening, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "rbac"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: RBAC that grants the wrong access",
+      "teach": "When `kubectl auth can-i` says `no` for something a SA should have, the fault is usually a wrong `resources`, `verbs`, or `apiGroups` entry in the **Role**. Inspect with `kubectl -n cks-learn get role <r> -o yaml` and compare each rule to what's required.\n\n**Gotcha:** fix the existing Role, don't create a second one — and keep it least-privilege: grant exactly what's needed, nothing more.",
+      "prompt": "In `cks-learn`, SA `audit-sa` is bound (via RoleBinding `audit-rb` → Role `audit-role`) but it still **cannot** `list pods` — the Role was seeded pointing at the wrong resource. Diagnose and fix the Role so `audit-sa` can `get,list` pods, without granting write access. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: SA `audit-sa` can `list pods` (`yes`) but cannot `delete pods` (`no`) in `cks-learn`.",
+      "hint": "`kubectl -n cks-learn get role audit-role -o yaml` — its rule lists the wrong `resources` (not `pods`). `kubectl -n cks-learn edit role audit-role` and set `resources: [\"pods\"]` with `verbs: [\"get\",\"list\"]`.",
+      "solution": "# describe/get shows audit-role grants get,list on 'services' instead of 'pods'\nkubectl -n cks-learn patch role audit-role --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/rules/0/resources\",\"value\":[\"pods\"]}]'\nkubectl auth can-i list pods   --as=system:serviceaccount:cks-learn:audit-sa -n cks-learn   # yes\nkubectl auth can-i delete pods --as=system:serviceaccount:cks-learn:audit-sa -n cks-learn   # no",
+      "setup": "setup/q8_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "SA audit-sa can list pods but cannot delete pods in cks-learn (Role fault fixed)",
+          "script": "validate/q8_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

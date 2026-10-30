@@ -1,0 +1,79 @@
+{
+  "id": "cks-runtimeclass-create",
+  "name": "Create and run a RuntimeClass",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY RuntimeClass corner harder than the exam: create a class and its required handler, the optional scheduling/overhead fields, select it per-pod and per-Deployment, contrast with the default runtime, layer securityContext hardening on top, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "runtime-security"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Create a RuntimeClass",
+      "teach": "A **RuntimeClass** (`apiVersion: node.k8s.io/v1`, `kind: RuntimeClass`) is a **cluster-scoped** object naming a container runtime the kubelet can use. Its one required field, **`handler`**, is a string the node's CRI maps to a runtime binary — e.g. gVisor's `runsc`.\n\n**Gotcha:** `handler` is a **top-level** field, NOT under `spec` — RuntimeClass has no `spec`.",
+      "prompt": "Create a cluster-scoped RuntimeClass named `gvisor` whose `handler` is `runsc`.\n\nTarget: `kubectl get runtimeclass gvisor` exists and its `.handler` is exactly `runsc`.",
+      "hint": "`apiVersion: node.k8s.io/v1`, `kind: RuntimeClass`, `metadata.name: gvisor`, and a top-level `handler: runsc` (NOT under spec). `kubectl apply -f -`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: node.k8s.io/v1\nkind: RuntimeClass\nmetadata:\n  name: gvisor\nhandler: runsc\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "RuntimeClass 'gvisor' exists with handler 'runsc'",
+          "script": "validate/q1_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "A RuntimeClass with scheduling + overhead",
+      "teach": "A RuntimeClass can carry optional fields the scheduler honours: **`scheduling.nodeSelector`** steers its pods onto nodes that actually have the runtime, and **`overhead.podFixed`** reserves resources the sandbox itself consumes. Both sit alongside the top-level `handler`.\n\n**Gotcha:** `scheduling` and `overhead` are **top-level** on the RuntimeClass (siblings of `handler`), not inside a pod spec.",
+      "prompt": "Create a RuntimeClass named `kata` with:\n- `handler` = `kata`\n- `scheduling.nodeSelector` = `{ runtime: kata }`\n- `overhead.podFixed` = `{ memory: 64Mi, cpu: 50m }`\n\nTarget: `kata` has handler `kata`, that nodeSelector, and that podFixed overhead.",
+      "hint": "All three are top-level fields on the RuntimeClass object: `handler:`, `scheduling: { nodeSelector: {...} }`, `overhead: { podFixed: {...} }`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: node.k8s.io/v1\nkind: RuntimeClass\nmetadata:\n  name: kata\nhandler: kata\nscheduling:\n  nodeSelector:\n    runtime: kata\noverhead:\n  podFixed:\n    memory: 64Mi\n    cpu: 50m\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "RuntimeClass 'kata': handler kata + scheduling.nodeSelector runtime=kata + overhead.podFixed mem 64Mi/cpu 50m",
+          "script": "validate/q2_s1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Run a pod on a RuntimeClass",
+      "teach": "A pod opts into a RuntimeClass via **`spec.runtimeClassName: <name>`** — a pod-level field. `kubectl run` has no flag for it, so inject it with `--overrides='{\"spec\":{\"runtimeClassName\":\"gvisor\"}}'`, or just write the YAML.\n\n**Gotcha:** since `runsc` isn't installed here the pod won't actually run on gVisor — we grade only that `.spec.runtimeClassName` is set, not the phase.",
+      "prompt": "In namespace `runtimeclass-learn`, create pod `sandboxed` (image `busybox:1.36`, command `sleep 3600`) requesting the `gvisor` RuntimeClass via `spec.runtimeClassName`.\n\nTarget: pod `sandboxed` has `.spec.runtimeClassName` = `gvisor`.",
+      "hint": "`kubectl run sandboxed -n runtimeclass-learn --image=busybox:1.36 --overrides='{\"spec\":{\"runtimeClassName\":\"gvisor\"}}' --command -- sleep 3600`, or apply YAML with `spec.runtimeClassName: gvisor`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: sandboxed, namespace: runtimeclass-learn }\nspec:\n  runtimeClassName: gvisor\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod 'sandboxed' requests runtimeClassName 'gvisor'",
+          "script": "validate/q3_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Contrast with a default-runtime pod",
+      "teach": "RuntimeClass is per-workload: sandbox the sensitive pods, leave the rest on the node's default runtime (usually `runc`), which shares the host kernel directly. A pod with **no `runtimeClassName`** uses that default.\n\n**Gotcha:** `-o jsonpath='{.spec.runtimeClassName}'` returns an **empty string** for a default-runtime pod — that emptiness is the correct \"normal\" state, not a mistake.",
+      "prompt": "In `runtimeclass-learn`, create pod `normal` (image `busybox:1.36`, command `sleep 3600`) with **no** `runtimeClassName`.\n\nTarget: `normal` exists with an empty `.spec.runtimeClassName`, while `sandboxed`'s is still `gvisor` — the two differ.",
+      "hint": "`kubectl run normal -n runtimeclass-learn --image=busybox:1.36 --command -- sleep 3600` — no overrides. Leaving runtimeClassName unset selects the default runtime.",
+      "solution": "kubectl run normal -n runtimeclass-learn --image=busybox:1.36 --command -- sleep 3600",
+      "verification": [
+        {
+          "id": "1",
+          "description": "'normal' has empty runtimeClassName while 'sandboxed' has gvisor (they differ)",
+          "script": "validate/q4_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

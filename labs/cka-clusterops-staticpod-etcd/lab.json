@@ -1,0 +1,59 @@
+{
+  "id": "cka-clusterops-staticpod-etcd",
+  "name": "Static pods & etcd backup",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Maintenance & Troubleshooting. Drill EVERY node-level cluster-ops corner harder than the exam: static pods and mirror pods, repairing a crash-looping control-plane component, etcd snapshot backup, node taints and labels, cordon/drain for maintenance, uncordon to return a node, and a no-hint diagnose-and-fix. Graded exactly on persistent node/cluster state via docker exec and kubectl -o json.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "cluster-ops"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Static pod on a worker",
+      "teach": "A **static pod** is run by the **kubelet** from a manifest in `/etc/kubernetes/manifests/` on one node — the API server never schedules it. The API shows a read-only **mirror pod** named `<pod>-<node>`.\n\n**Gotcha:** the manifest must live on the node you want the pod on — write it to `$W1`, or no mirror pod appears.",
+      "prompt": "On worker node `$W1`, create a static pod named `static-web` (container `web`, image `busybox:1.36`, command `sleep 3600`) by writing a manifest into `/etc/kubernetes/manifests/` on that node.\n\nTarget: the mirror pod `static-web-$W1` is `Running` in namespace `default`, with image `busybox:1.36` and command `sleep 3600`.",
+      "hint": "In the exam you'd `ssh <node>`; in KindLab that's `docker exec -it $W1 bash`. Then `cd /etc/kubernetes/manifests/` and create `static-web.yaml` — kind nodes have no vi, so use `cat > static-web.yaml <<'EOF' … EOF` — with a Pod named `static-web`. The kubelet forms the mirror pod `static-web-<node>` in ~15s.",
+      "solution": "# 1) shell ONTO the worker node (exam equivalent: ssh <node>)\ndocker exec -it $W1 bash\n\n# 2) now on the node: go to the static-pod dir and create the manifest (use vi in the exam)\ncd /etc/kubernetes/manifests/\ncat > static-web.yaml <<'EOF'\napiVersion: v1\nkind: Pod\nmetadata:\n  name: static-web\nspec:\n  containers:\n  - name: web\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF\nexit\n\n# 3) back on the base machine: verify the mirror pod\nkubectl get pod static-web-$W1 -n default",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "static-web manifest present in /etc/kubernetes/manifests on $W1",
+          "script": "validate/q1_s1.sh",
+          "weightage": 5
+        },
+        {
+          "id": "2",
+          "description": "mirror pod static-web-$W1 Running with image busybox:1.36 + command sleep 3600",
+          "script": "validate/q1_s2.sh",
+          "weightage": 8
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Back up etcd",
+      "teach": "**etcd** holds all cluster state; back it up with `etcdctl snapshot save`, authenticating via the certs under `/etc/kubernetes/pki/etcd/` against `https://127.0.0.1:2379`. Save into `/var/lib/etcd` (mounted on the node), then copy the file out.\n\n**Gotcha:** the etcd image is **distroless — no shell**. Call `etcdctl` directly via `kubectl exec`; wrapping it in `sh -c '...'` fails.",
+      "prompt": "Take an etcd snapshot and save it to `/opt/snapshot.db` on the control-plane node `$CP`.\n\nTarget: `/opt/snapshot.db` exists on `$CP` and is a real (>1KB) etcd snapshot.",
+      "hint": "`kubectl -n kube-system exec etcd-$CP -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key snapshot save /var/lib/etcd/snapshot.db`, then `docker exec $CP cp /var/lib/etcd/snapshot.db /opt/snapshot.db`.",
+      "solution": "kubectl -n kube-system exec etcd-\"$CP\" -- etcdctl \\\n  --endpoints=https://127.0.0.1:2379 \\\n  --cacert=/etc/kubernetes/pki/etcd/ca.crt \\\n  --cert=/etc/kubernetes/pki/etcd/server.crt \\\n  --key=/etc/kubernetes/pki/etcd/server.key \\\n  snapshot save /var/lib/etcd/snapshot.db\ndocker exec \"$CP\" cp /var/lib/etcd/snapshot.db /opt/snapshot.db",
+      "verification": [
+        {
+          "id": "1",
+          "description": "snapshot file exists at /opt/snapshot.db on $CP",
+          "script": "validate/q3_s1.sh",
+          "weightage": 6
+        },
+        {
+          "id": "2",
+          "description": "snapshot is a real (non-trivial, >1KB) etcd backup",
+          "script": "validate/q3_s2.sh",
+          "weightage": 7
+        }
+      ]
+    }
+  ]
+}

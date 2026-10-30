@@ -18,6 +18,8 @@ const http = require('http');
 const ROOT = path.resolve(__dirname, '..');
 const LABS_DIR = path.join(ROOT, 'labs');
 const WEB_DIR = path.join(ROOT, 'web');
+const grouping = require('../lib/grouping');
+const serializeLab = require('../lib/serialize-lab');
 const STATE_DIR = path.join(ROOT, '.state');
 const KIND_CFG = path.join(ROOT, 'kind', 'cluster.yaml');
 const CLUSTER = 'kindlab';
@@ -99,6 +101,15 @@ function mergeKube() {
   // so a mid-operation hiccup can never leave an EMPTY kubeconfig behind.
   const clusters = cap('kind get clusters 2>/dev/null').out.split('\n').map(s => s.trim()).filter(Boolean);
   if (!clusters.length) return;
+  // Capture each context's default namespace from the existing kubeconfig so a
+  // learner-set namespace (`kubectl config set-context <ctx> --namespace=<ns>`)
+  // survives this rebuild — otherwise it is wiped on every command that merges,
+  // making namespace-setting steps ungradable.
+  const savedNs = {};
+  if (fs.existsSync(KUBECONFIG)) {
+    const raw = cap(`KUBECONFIG=${KUBECONFIG} kubectl config view -o jsonpath='{range .contexts[*]}{.name}{"\\t"}{.context.namespace}{"\\n"}{end}' 2>/dev/null`).out;
+    for (const line of raw.split('\n')) { const [n, ns] = line.split('\t'); if (n && ns && ns.trim()) savedNs[n.trim()] = ns.trim(); }
+  }
   const files = [];
   for (const c of clusters) { const f = path.join(STATE_DIR, `kc_${c}`); cap(`kind get kubeconfig --name ${c} > ${f}`); files.push(f); }
   const tmp = path.join(STATE_DIR, 'kubeconfig.tmp');
@@ -108,6 +119,10 @@ function mergeKube() {
     // preserve the current context if the live file already has a valid one
     const cur = fs.existsSync(KUBECONFIG) ? cap(`KUBECONFIG=${KUBECONFIG} kubectl config current-context 2>/dev/null`).out.trim() : '';
     cap(`mv ${tmp} ${KUBECONFIG}`);
+    // re-apply saved per-context namespaces onto the freshly merged kubeconfig
+    for (const [n, ns] of Object.entries(savedNs)) {
+      if (hasCtx.split('\n').includes(n)) cap(`KUBECONFIG=${KUBECONFIG} kubectl config set-context ${n} --namespace=${ns} >/dev/null 2>&1`);
+    }
     if (cur && hasCtx.split('\n').includes(cur)) cap(`KUBECONFIG=${KUBECONFIG} kubectl config use-context ${cur} >/dev/null 2>&1`);
     else cap(`KUBECONFIG=${KUBECONFIG} kubectl config use-context ${CTX} >/dev/null 2>&1`);
   }
@@ -237,23 +252,23 @@ function cmdReset() {
 
 const labType = (l) => (l.type === 'learn' ? 'learn' : 'exam');
 
-function cmdList() {
+function cmdList(opts) {
   const labs = loadLabs();
   if (!labs.length) { console.log('No labs found.'); return; }
   const row = (l) => `    ${labType(l) === 'learn' ? '📘' : '📝'} ${paint(l.id.padEnd(22), 'cyan')} ${l.name}  ${paint(`(${(l.questions || []).length} ${labType(l) === 'learn' ? 'steps' : 'tasks'})`, 'dim')}`;
-  for (const cert of ['CKAD', 'CKA', 'CKS', 'Other']) {
-    const inCert = labs.filter(l => l.category === cert);
-    if (!inCert.length) continue;
-    console.log(paint(`\n  ══ ${cert} ══`, 'bold'));
-    inCert.filter(l => labType(l) === 'learn').forEach(l => console.log(row(l)));
-    inCert.filter(l => labType(l) === 'exam').forEach(l => console.log(row(l)));
+  const shelves = grouping.shelvesFor(labs, opts || {});
+  for (const shelf of shelves) {
+    const header = shelf.label !== undefined ? shelf.label : shelf.cert;
+    console.log(paint(`\n  ══ ${header} ══`, 'bold'));
+    shelf.labs.filter(l => labType(l) === 'learn').forEach(l => console.log(row(l)));
+    shelf.labs.filter(l => labType(l) === 'exam').forEach(l => console.log(row(l)));
   }
   console.log(paint('\n  📘 learn <id> → check <id>      📝 exam <id> [min] → grade <id>\n', 'dim'));
 }
 
 function cmdTasks(id) {
   const lab = getLab(id);
-  console.log(paint(`\n  ${lab.name}  ${paint(`[${lab.category}]`, 'gray')}`, 'bold'));
+  console.log(paint(`\n  ${lab.name}  ${paint(`[${grouping.certOf(lab)}]`, 'gray')}`, 'bold'));
   if (lab.objective) console.log(paint(`  🎯 ${lab.objective}`, 'cyan'));
   console.log('');
   for (const q of lab.questions) {
@@ -323,7 +338,7 @@ function cmdLearn(id) {
   if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break
   console.log(paint(`\nPreparing lesson '${lab.name}'...`, 'cyan'));
   ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
-  console.log(paint(`\n  📘 LEARN: ${lab.name}  ${paint(`[${lab.category}]`, 'gray')}`, 'bold'));
+  console.log(paint(`\n  📘 LEARN: ${lab.name}  ${paint(`[${grouping.certOf(lab)}]`, 'gray')}`, 'bold'));
   if (lab.objective) console.log(paint(`  🎯 ${lab.objective}`, 'cyan'));
   console.log('');
   for (const q of lab.questions) {
@@ -386,7 +401,7 @@ function gradeLab(lab) {
   }
   const pct = total ? Math.round((got / total) * 100) : 0;
   const rank = pct >= 90 ? 'high' : pct >= 70 ? 'medium' : pct >= 50 ? 'low' : 'fail';
-  const out = { labId: lab.id, name: lab.name, category: lab.category, got, total, pct, rank, results, at: new Date().toISOString() };
+  const out = { labId: lab.id, name: lab.name, category: grouping.certOf(lab), got, total, pct, rank, results, at: new Date().toISOString() };
   ensureState();
   fs.writeFileSync(path.join(STATE_DIR, `${lab.id}.result.json`), JSON.stringify(out, null, 2));
   return out;
@@ -426,7 +441,7 @@ function clearMock() { try { if (fs.existsSync(MOCK_FILE)) fs.unlinkSync(MOCK_FI
 
 function buildMockPool(cert) {
   const pool = [];
-  for (const l of loadLabs().filter(l => l.category === cert && labType(l) === 'exam')) {
+  for (const l of loadLabs().filter(l => grouping.inMockPool(l, cert))) {
     for (const q of l.questions) {
       const w = (q.verification || []).reduce((s, v) => s + Number(v.weightage), 0);
       pool.push({ lab: l.id, qid: q.id, title: q.title, prompt: q.prompt, weight: w });
@@ -539,13 +554,13 @@ function cmdServe(port = 8080) {
     const p = url.pathname;
     try {
       if (p === '/' ) return serveStatic(res, path.join(WEB_DIR, 'index.html'));
-      if (p === '/app.js' || p === '/styles.css') return serveStatic(res, path.join(WEB_DIR, p.slice(1)));
+      if (p === '/app.js' || p === '/styles.css' || p === '/grouping.js') return serveStatic(res, path.join(WEB_DIR, p.slice(1)));
       if (p === '/api/status') return sendJSON(res, { up: clusterExists(), cluster: CLUSTER, nodes: nodeNames(), kubeconfig: KUBECONFIG, context: CTX, controlPlane: `${CLUSTER}-control-plane` });
-      if (p === '/api/labs') return sendJSON(res, loadLabs().map(l => ({ id: l.id, name: l.name, category: l.category, type: labType(l), requiresHost: !!l.requiresHost, tasks: (l.questions || []).length })));
+      if (p === '/api/labs') return sendJSON(res, loadLabs().map(l => serializeLab(l, labType)));
       if (p.startsWith('/api/lab/')) {
         const lab = loadLabs().find(l => l.id === p.split('/')[3]);
         if (!lab) return sendJSON(res, { error: 'not found' }, 404);
-        return sendJSON(res, lab);
+        return sendJSON(res, { ...lab, category: grouping.certOf(lab) });
       }
       if (p.startsWith('/api/answers/')) {
         const lab = loadLabs().find(l => l.id === p.split('/')[3]);
@@ -667,7 +682,7 @@ switch (cmd) {
   case 'cluster2': cmdCluster2(arg); break;
   case 'reset': cmdReset(); break;
   case 'doctor': case 'heal': cmdDoctor(); break;
-  case 'list': cmdList(); break;
+  case 'list': cmdList({ byCert: process.argv.includes('--cert') }); break;
   case 'tasks': cmdTasks(arg); break;
   case 'start': cmdStart(arg, arg2 ? Number(arg2) : 0); break;
   case 'exam': cmdStart(arg, arg2 ? Number(arg2) : 120); break;

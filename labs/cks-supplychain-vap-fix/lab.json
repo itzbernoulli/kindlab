@@ -1,0 +1,63 @@
+{
+  "id": "cks-supplychain-vap-fix",
+  "name": "Enforce image policy with VAP",
+  "type": "learn",
+  "objective": "CKS › Supply Chain Security (20%). Drill EVERY supply-chain corner harder than the exam: Trivy CVE scanning with severity gates, static manifest analysis with kubesec, digest pinning, banning :latest, ImagePullPolicy hardening, an approved-registry ValidatingAdmissionPolicy + binding, a VAP that bans :latest, and a no-hint diagnose-and-fix on a broken binding. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "supply-chain"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Approved-registry admission (ValidatingAdmissionPolicy)",
+      "teach": "A **ValidatingAdmissionPolicy (VAP)** enforces rules in-cluster with **CEL** — no webhook server. An approved-registry allowlist uses `object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))`, matched on Pods via `matchConstraints`.\n\n**Gotcha:** the policy does **nothing** until a **binding** references it by `policyName` with `validationActions: [Deny]`.",
+      "prompt": "Create a **ValidatingAdmissionPolicy** `approved-registry` that denies Pods whose container images do NOT start with `registry.k8s.io/`, plus a **ValidatingAdmissionPolicyBinding** `approved-registry-binding` enabling it (action `Deny`) on Pods.\n\nTarget: both objects exist; the policy's CEL validation references `registry.k8s.io` over `object.spec.containers`; the binding has `policyName: approved-registry` and `validationActions` containing `Deny`.",
+      "hint": "`matchConstraints.resourceRules` on resource `pods` (apiGroups `[\"\"]`). Validation CEL: `object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))`. Binding: `policyName: approved-registry`, `validationActions: [Deny]`, `matchResources: {}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicy\nmetadata:\n  name: approved-registry\nspec:\n  failurePolicy: Fail\n  matchConstraints:\n    resourceRules:\n    - apiGroups: [\"\"]\n      apiVersions: [\"v1\"]\n      operations: [\"CREATE\",\"UPDATE\"]\n      resources: [\"pods\"]\n  validations:\n  - expression: \"object.spec.containers.all(c, c.image.startsWith('registry.k8s.io/'))\"\n    message: \"images must come from registry.k8s.io\"\n---\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicyBinding\nmetadata:\n  name: approved-registry-binding\nspec:\n  policyName: approved-registry\n  validationActions: [\"Deny\"]\n  matchResources: {}\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "VAP approved-registry + binding with the registry.k8s.io rule and Deny",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Ban :latest cluster-wide with a VAP",
+      "teach": "The same VAP mechanism can **ban `:latest`**: a CEL check `object.spec.containers.all(c, !c.image.endsWith(':latest'))` rejects any Pod whose container image ends in `:latest`. It pairs with its own binding, independent of the registry policy.\n\n**Gotcha:** this does NOT catch an untagged image (`nginx`) — `endsWith(':latest')` is false for it; catching that needs a stricter CEL (`c.image.contains(':') || c.image.contains('@')`).",
+      "prompt": "Create a **ValidatingAdmissionPolicy** `no-latest-tag` that denies Pods with a container image ending in `:latest`, plus a binding `no-latest-tag-binding` enabling it (action `Deny`) on Pods.\n\nTarget: both objects exist; the policy's CEL validation references `:latest` with `endsWith` over `object.spec.containers`; the binding has `policyName: no-latest-tag` and `validationActions` containing `Deny`.",
+      "hint": "Validation CEL: `object.spec.containers.all(c, !c.image.endsWith(':latest'))`. Then a binding with `policyName: no-latest-tag`, `validationActions: [Deny]`, `matchResources: {}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicy\nmetadata:\n  name: no-latest-tag\nspec:\n  failurePolicy: Fail\n  matchConstraints:\n    resourceRules:\n    - apiGroups: [\"\"]\n      apiVersions: [\"v1\"]\n      operations: [\"CREATE\",\"UPDATE\"]\n      resources: [\"pods\"]\n  validations:\n  - expression: \"object.spec.containers.all(c, !c.image.endsWith(':latest'))\"\n    message: \"the :latest tag is banned\"\n---\napiVersion: admissionregistration.k8s.io/v1\nkind: ValidatingAdmissionPolicyBinding\nmetadata:\n  name: no-latest-tag-binding\nspec:\n  policyName: no-latest-tag\n  validationActions: [\"Deny\"]\n  matchResources: {}\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "VAP no-latest-tag + binding banning :latest with Deny",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Diagnose & fix: a VAP binding that enforces nothing",
+      "teach": "A **ValidatingAdmissionPolicyBinding** is inert unless its `policyName` names a real policy AND `validationActions` includes `Deny`. Inspect with `kubectl get validatingadmissionpolicybinding <b> -o yaml` and compare `policyName` to the actual policy name and the action.\n\n**Gotcha:** a binding pointing at a non-existent policy is accepted silently — it just never enforces, so bad Pods sail through.",
+      "prompt": "A policy `block-privileged` exists, but its binding `block-privileged-binding` (seeded by setup) **enforces nothing** — privileged Pods are still admitted. Diagnose why and fix the binding so it actually enforces `block-privileged` with action `Deny`. Don't delete and recreate from scratch — find and fix what's wrong.\n\nTarget: binding `block-privileged-binding` has `policyName: block-privileged` and `validationActions` containing `Deny`.",
+      "hint": "`kubectl get validatingadmissionpolicybinding block-privileged-binding -o yaml` — the `policyName` points at a wrong/typo'd policy and/or `validationActions` isn't `Deny`. Patch it: `kubectl patch validatingadmissionpolicybinding block-privileged-binding --type=merge -p '{\"spec\":{\"policyName\":\"block-privileged\",\"validationActions\":[\"Deny\"]}}'`.",
+      "solution": "# The seeded binding references a wrong policyName and action Warn — it enforces nothing.\nkubectl patch validatingadmissionpolicybinding block-privileged-binding --type=merge \\\n  -p '{\"spec\":{\"policyName\":\"block-privileged\",\"validationActions\":[\"Deny\"]}}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "block-privileged-binding now targets block-privileged with Deny",
+          "script": "validate/q8_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

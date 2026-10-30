@@ -1,0 +1,47 @@
+{
+  "id": "cka-rbac-basics",
+  "name": "Role & RoleBinding basics",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration. Drill EVERY RBAC corner harder than the exam: namespaced Role vs cluster-scoped ClusterRole, binding to users and ServiceAccounts, reusing a ClusterRole inside one namespace via a RoleBinding, least-privilege with resourceNames, apiGroups for subresources, approving a CSR, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "rbac"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Role + RoleBinding (namespaced)",
+      "teach": "**RBAC** decides who can do what. A **Role** lists allowed *verbs* on *resources* inside one namespace; a **RoleBinding** grants that Role to a subject (here user `dev`). Build both with `kubectl create role` / `kubectl create rolebinding`.\n\n**Gotcha:** a Role alone grants nothing — access only exists once a RoleBinding points a subject at it.",
+      "prompt": "In namespace `rbac-learn`, create a Role `pod-reader` allowing `get,list,watch` on `pods`, and a RoleBinding `dev-pr` granting it to user `dev`.\n\nTarget: `kubectl auth can-i list pods --as=dev -n rbac-learn` → `yes`.",
+      "hint": "`kubectl -n rbac-learn create role pod-reader --verb=get,list,watch --resource=pods`, then `kubectl -n rbac-learn create rolebinding dev-pr --role=pod-reader --user=dev`.",
+      "solution": "kubectl -n rbac-learn create role pod-reader --verb=get,list,watch --resource=pods\nkubectl -n rbac-learn create rolebinding dev-pr --role=pod-reader --user=dev\nkubectl auth can-i list pods --as=dev -n rbac-learn   # -> yes",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Role pod-reader (get,list,watch pods) bound to user dev; dev can list pods but not delete",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "ClusterRole + ClusterRoleBinding (cluster-scoped)",
+      "teach": "Cluster-scoped resources like **nodes** live outside any namespace, so a namespaced Role can't reach them. Use a **ClusterRole** for the rules and a **ClusterRoleBinding** to grant them cluster-wide.\n\n**Gotcha:** check cluster-scoped access with **no** `-n` flag — `kubectl auth can-i list nodes --as=dev`.",
+      "prompt": "Create a ClusterRole `node-reader` allowing `get,list` on `nodes`, and a ClusterRoleBinding `dev-nr` granting it to user `dev`.\n\nTarget: `kubectl auth can-i list nodes --as=dev` → `yes`.",
+      "hint": "`kubectl create clusterrole node-reader --verb=get,list --resource=nodes`, then `kubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev`.",
+      "solution": "kubectl create clusterrole node-reader --verb=get,list --resource=nodes\nkubectl create clusterrolebinding dev-nr --clusterrole=node-reader --user=dev\nkubectl auth can-i list nodes --as=dev   # -> yes",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ClusterRole node-reader (get,list nodes) bound cluster-wide to dev; can list nodes but not list secrets",
+          "script": "validate/c2.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ]
+}

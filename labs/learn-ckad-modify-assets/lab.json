@@ -3,13 +3,13 @@
   "name": "Learn: Modify Existing Assets (tricky bits)",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD exam-reality: questions hand you assets that ALREADY exist and ask you to change them. Goal: handle the non-obvious immutability quirks — relabel a Deployment (immutable selector), change a bare Pod (immutable in place), edit an on-disk manifest and re-apply, and make running pods pick up a changed ConfigMap.",
+  "objective": "CKAD exam-reality: questions hand you assets that ALREADY exist and ask you to change them. Goal: handle the non-obvious immutability quirks \u2014 relabel a Deployment (immutable selector), change a bare Pod (immutable in place), edit an on-disk manifest and re-apply, and make running pods pick up a changed ConfigMap.",
   "description": "Four pre-seeded assets in 'modify-learn', each needing a change that isn't a straight edit: an immutable Deployment selector, an immutable Pod, an on-disk YAML you must edit + apply, and a ConfigMap whose change only lands after a rollout restart.",
   "questions": [
     {
       "id": "1",
       "title": "Relabel a Deployment (selector is immutable)",
-      "teach": "A Deployment's `.spec.selector` is **immutable**, so you can't edit it in place to relabel. Instead dump it to YAML, change both the selector and the matching pod-template labels, and recreate with `kubectl replace --force -f` (delete+recreate in one command).\n\n**Gotcha:** the pod-template labels must always match the selector — change both together or the API rejects it.",
+      "teach": "A Deployment's `.spec.selector` is **immutable**, so you can't edit it in place to relabel. Instead dump it to YAML, change both the selector and the matching pod-template labels, and recreate with `kubectl replace --force -f` (delete+recreate in one command).\n\n**Gotcha:** the pod-template labels must always match the selector \u2014 change both together or the API rejects it.",
       "prompt": "The Deployment `legacy` in `modify-learn` has selector and pod labels `app=legacy`. Relabel it so both its selector and its pods use `app=payments` instead.\n\nTarget: Deployment `legacy` exists with `.spec.selector.matchLabels.app=payments`, matching pod-template labels, and at least one available replica.",
       "hint": "You can't edit the selector in place (it's immutable). Recreate: `kubectl -n modify-learn get deploy legacy -o yaml > /tmp/legacy.yaml`, change every `app: legacy` to `app: payments`, then `kubectl -n modify-learn replace --force -f /tmp/legacy.yaml`.",
       "solution": "kubectl -n modify-learn get deploy legacy -o yaml > /tmp/legacy.yaml\nsed -i '' 's/app: legacy/app: payments/g' /tmp/legacy.yaml   # (Linux: sed -i 's/.../g')\nkubectl -n modify-learn replace --force -f /tmp/legacy.yaml\nkubectl -n modify-learn get deploy legacy -o wide",
@@ -26,7 +26,7 @@
     {
       "id": "2",
       "title": "Change a bare Pod (immutable in place)",
-      "teach": "A running Pod's `env` can't be changed in place — a bare Pod is almost entirely immutable. To add env, dump it to YAML, add the var under the container, and recreate with `kubectl replace --force -f` (delete+recreate in one step).\n\n**Gotcha:** `kubectl set env pod/<name> …` fails — `set env` works on templates like Deployments, not on live Pods.",
+      "teach": "A running Pod's `env` can't be changed in place \u2014 a bare Pod is almost entirely immutable. To add env, dump it to YAML, add the var under the container, and recreate with `kubectl replace --force -f` (delete+recreate in one step).\n\n**Gotcha:** `kubectl set env pod/<name> \u2026` fails \u2014 `set env` works on templates like Deployments, not on live Pods.",
       "prompt": "A bare Pod `tool` (busybox) runs in `modify-learn`. Add an environment variable `MODE=prod` to its container.\n\nTarget: Pod `tool` is Running and its container has env `MODE=prod`.",
       "hint": "You can't add env to a live Pod (`set env pod/...` and `edit` are rejected). Recreate it: `kubectl -n modify-learn get pod tool -o yaml > /tmp/tool.yaml`, add the env under the container, then `kubectl -n modify-learn replace --force -f /tmp/tool.yaml`.",
       "solution": "kubectl -n modify-learn get pod tool -o yaml > /tmp/tool.yaml\n# add under containers[0]:  env: [{name: MODE, value: prod}]\nkubectl -n modify-learn replace --force -f /tmp/tool.yaml\nkubectl -n modify-learn get pod tool -o jsonpath='{.spec.containers[0].env}'",
@@ -42,7 +42,7 @@
     {
       "id": "3",
       "title": "Edit an on-disk manifest and re-apply",
-      "teach": "When the asset is a **YAML file on disk** already applied to the cluster, edit the file and re-apply with `kubectl apply -f file.yaml` — the file stays the source of truth. Preview changes first with `kubectl diff -f file.yaml`.\n\n**Gotcha:** `kubectl edit` changes the *live* object but not your file, so the two drift apart — edit the file when a file is the asset.",
+      "teach": "When the asset is a **YAML file on disk** already applied to the cluster, edit the file and re-apply with `kubectl apply -f file.yaml` \u2014 the file stays the source of truth. Preview changes first with `kubectl diff -f file.yaml`.\n\n**Gotcha:** `kubectl edit` changes the *live* object but not your file, so the two drift apart \u2014 edit the file when a file is the asset.",
       "prompt": "The manifest `/tmp/kindlab-assets/widget-deploy.yaml` defines Deployment `widget` (applied at 1 replica, `nginx:1.25`). Edit the **file** to scale it to `3` replicas and update the image to `nginx:1.26`, then apply it.\n\nTarget: Deployment `widget` in `modify-learn` has 3 available replicas on image `nginx:1.26`.",
       "hint": "Edit `/tmp/kindlab-assets/widget-deploy.yaml` (set `replicas: 3` and `image: nginx:1.26`), preview with `kubectl diff -f /tmp/kindlab-assets/widget-deploy.yaml`, then `kubectl apply -f /tmp/kindlab-assets/widget-deploy.yaml`.",
       "solution": "sed -i '' -e 's/replicas: 1/replicas: 3/' -e 's/nginx:1.25/nginx:1.26/' /tmp/kindlab-assets/widget-deploy.yaml\nkubectl diff -f /tmp/kindlab-assets/widget-deploy.yaml\nkubectl apply -f /tmp/kindlab-assets/widget-deploy.yaml\nkubectl -n modify-learn rollout status deployment/widget",
@@ -58,7 +58,7 @@
     {
       "id": "4",
       "title": "Make pods pick up a changed ConfigMap",
-      "teach": "Env injected from a ConfigMap via `valueFrom.configMapKeyRef` is resolved **once, at pod start**, so editing the ConfigMap doesn't change already-running pods. Update the ConfigMap, then `kubectl rollout restart deployment/<name>` so new pods re-read it.\n\n**Gotcha:** only ConfigMaps mounted as a **volume** update live in the container — `env`/`envFrom` values are frozen until a restart.",
+      "teach": "Env injected from a ConfigMap via `valueFrom.configMapKeyRef` is resolved **once, at pod start**, so editing the ConfigMap doesn't change already-running pods. Update the ConfigMap, then `kubectl rollout restart deployment/<name>` so new pods re-read it.\n\n**Gotcha:** only ConfigMaps mounted as a **volume** update live in the container \u2014 `env`/`envFrom` values are frozen until a restart.",
       "prompt": "Deployment `web` in `modify-learn` reads env `COLOR` from ConfigMap `web-config` (currently `blue`). Change the config to `green` and make the **running** pods actually serve `COLOR=green`.\n\nTarget: ConfigMap `web-config` has `COLOR=green` AND a running `web` pod reports `COLOR=green` from its environment.",
       "hint": "Update the CM then roll the pods: `kubectl -n modify-learn create configmap web-config --from-literal=COLOR=green --dry-run=client -o yaml | kubectl apply -f -`, then `kubectl -n modify-learn rollout restart deployment/web`. Verify with `kubectl -n modify-learn exec <web-pod> -- printenv COLOR`.",
       "solution": "kubectl -n modify-learn create configmap web-config --from-literal=COLOR=green --dry-run=client -o yaml | kubectl apply -f -\nkubectl -n modify-learn rollout restart deployment/web\nkubectl -n modify-learn rollout status deployment/web\nkubectl -n modify-learn exec deploy/web -- printenv COLOR   # green",
@@ -74,7 +74,7 @@
     {
       "id": "5",
       "title": "Rename a container without ending up with two",
-      "teach": "`kubectl apply` merges the `containers` list by `name`. Renaming a container on a Deployment that has no `last-applied` annotation (created with `kubectl create`/`run`) does a 2-way merge — it **adds** the new name and **keeps** the old, leaving TWO containers. Rename cleanly with `kubectl edit`, `kubectl replace -f`, or a JSON patch instead.\n\n**Gotcha:** 'nothing changed' after apply usually means you now have both containers — check `kubectl get deploy -o jsonpath='{..containers[*].name}'`.",
+      "teach": "`kubectl apply` merges the `containers` list by `name`. Renaming a container on a Deployment that has no `last-applied` annotation (created with `kubectl create`/`run`) does a 2-way merge \u2014 it **adds** the new name and **keeps** the old, leaving TWO containers. Rename cleanly with `kubectl edit`, `kubectl replace -f`, or a JSON patch instead.\n\n**Gotcha:** 'nothing changed' after apply usually means you now have both containers \u2014 check `kubectl get deploy -o jsonpath='{..containers[*].name}'`.",
       "prompt": "Deployment `renamer` in `modify-learn` was created imperatively; its container is named `nginx`. Rename that container to `web`, in place, so the Deployment ends with **exactly one** container named `web` (image unchanged). A naive `apply` of a renamed manifest will leave two containers.\n\nTarget: `renamer` has exactly ONE container, named `web`, image `nginx:1.25`.",
       "hint": "Don't `apply` a renamed manifest (it keeps both). Use `kubectl -n modify-learn edit deployment renamer` (change the name), or a JSON patch: `kubectl -n modify-learn patch deployment renamer --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/name\",\"value\":\"web\"}]'`.",
       "solution": "kubectl -n modify-learn patch deployment renamer --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/name\",\"value\":\"web\"}]'\nkubectl -n modify-learn get deploy renamer -o jsonpath='{.spec.template.spec.containers[*].name}'   # web (one container)",
@@ -88,5 +88,11 @@
         }
       ]
     }
+  ],
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "workloads"
   ]
 }

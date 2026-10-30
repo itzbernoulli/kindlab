@@ -27,13 +27,21 @@
   </header>
 
   <main>
-    <aside id="labList" class="labs"><div class="muted">loading labs…</div></aside>
+    <div class="sidebar-col">
+      <div class="browse-toggle" id="browseToggle" role="group" aria-label="Browse by">
+        <button class="tog-btn" id="togTopic" data-mode="topic">By Topic</button>
+        <button class="tog-btn on" id="togCert" data-mode="cert">By Cert</button>
+      </div>
+      <aside id="labList" class="labs"><div class="muted">loading labs…</div></aside>
+    </div>
 
     <section id="panel" class="panel">
       <div class="empty">Select a lab on the left to begin.</div>
     </section>
   </main>
 
+  <!-- web/grouping.js mirrors lib/grouping.js for browser use (no bundler). Must stay in sync. -->
+  <script src="/grouping.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

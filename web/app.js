@@ -1,9 +1,15 @@
+// web/app.js — uses web/grouping.js (browser mirror of lib/grouping.js) for dual-axis browse.
+// web/grouping.js must stay in sync with lib/grouping.js (it is the single source of truth).
 const $ = (s, r = document) => r.querySelector(s);
 const api = (p, opts) => fetch(p, opts).then(r => r.json());
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let current = null;
 let clusterInfo = {};
+// Browse mode: 'topic' (default) or 'cert'
+let browseMode = 'cert';
+// Last fetched labs list (for re-rendering on toggle without refetch)
+let cachedLabs = null;
 
 // Click-to-copy: like the exam, clicking an inline `code` token (name,
 // namespace, value) in the "Your turn" task box copies it for the terminal.
@@ -71,10 +77,13 @@ async function refreshStatus() {
   return s.up;
 }
 
-async function loadLabs() {
-  const labs = await api('/api/labs');
+function renderLabList(labs) {
+  if (!labs || labs.length === 0) {
+    const list = $('#labList');
+    list.innerHTML = '<div class="muted">No labs found.</div>';
+    return;
+  }
   const list = $('#labList');
-  if (!labs.length) { list.innerHTML = '<div class="muted">No labs found.</div>'; return; }
   list.innerHTML = '';
   const mockBtn = document.createElement('div');
   mockBtn.className = 'mock-launch';
@@ -87,12 +96,13 @@ async function loadLabs() {
   resetAll.onclick = async () => {
     if (!confirm('Clear ALL saved scores across every lab? (Your clusters are untouched — this only resets the ✓ marks and mastered badges.)')) return;
     const r = await api('/api/clear-all', { method: 'POST' });
+    cachedLabs = null;
     await loadLabs();
     $('#panel').innerHTML = `<div class="muted" style="padding:40px 4px">Cleared ${r.cleared || 0} saved result${(r.cleared === 1) ? '' : 's'}. Pick a lab to begin.</div>`;
   };
   list.appendChild(resetAll);
-  const section = (title, cert) => { const h = document.createElement('div'); h.className = 'lab-section cert-' + cert; h.textContent = title; list.appendChild(h); };
-  const addCard = (l) => {
+
+  const makeCard = (l) => {
     const t = l.type === 'learn' ? 'learn' : 'exam';
     const card = document.createElement('div');
     card.className = `lab-card type-${t} cat-${l.category}`;
@@ -101,16 +111,48 @@ async function loadLabs() {
     card.innerHTML = `<div class="name">${esc(l.name)}</div>
       <div class="meta"><span class="type-tag ${t}">${t === 'learn' ? 'Learn' : 'Exam'}</span> · ${l.tasks} ${unit}${l.requiresHost ? ' · <span class="host-tag">needs host</span>' : ''}</div>`;
     card.onclick = () => { document.querySelectorAll('.lab-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); openLab(l.id); };
-    list.appendChild(card);
+    return card;
   };
-  for (const cert of ['CKAD', 'CKA', 'CKS', 'Other']) {
-    const inCert = labs.filter(l => l.category === cert);
-    if (!inCert.length) continue;
-    section(cert, cert);
-    const learn = inCert.filter(l => l.type === 'learn');
-    const exam = inCert.filter(l => l.type !== 'learn');
-    [...learn, ...exam].forEach(addCard);
+
+  // Collapsed-section state persists across refreshes, keyed per browse mode + section.
+  const collapseKey = (id) => `kindlab.collapsed.${browseMode}.${id}`;
+  const isCollapsed = (id) => localStorage.getItem(collapseKey(id)) === '1';
+
+  // Render one collapsible section: a clickable header that folds/unfolds its cards.
+  const renderShelf = (id, headerCls, headerText, shelfLabs) => {
+    const collapsed = isCollapsed(id);
+    const h = document.createElement('div');
+    h.className = 'lab-section ' + headerCls + (collapsed ? ' collapsed' : '');
+    h.innerHTML = `<span class="caret">▾</span><span class="sec-label">${esc(headerText)}</span><span class="sec-count">${shelfLabs.length}</span>`;
+    list.appendChild(h);
+    const body = document.createElement('div');
+    body.className = 'lab-section-body';
+    if (collapsed) body.style.display = 'none';
+    const learn = shelfLabs.filter(l => l.type === 'learn');
+    const exam = shelfLabs.filter(l => l.type !== 'learn');
+    [...learn, ...exam].forEach(l => body.appendChild(makeCard(l)));
+    list.appendChild(body);
+    h.onclick = () => {
+      const nowCollapsed = !h.classList.contains('collapsed');
+      h.classList.toggle('collapsed', nowCollapsed);
+      body.style.display = nowCollapsed ? 'none' : '';
+      localStorage.setItem(collapseKey(id), nowCollapsed ? '1' : '0');
+    };
+  };
+
+  if (browseMode === 'cert') {
+    // Cert view: uses byCert from web/grouping.js (mirrors lib/grouping.js).
+    // Dual-cert labs appear under each of their certs.
+    for (const shelf of window.byCert(labs)) {
+      renderShelf('cert:' + shelf.cert, 'cert-' + shelf.cert, shelf.cert, shelf.labs);
+    }
+  } else {
+    // Topic view (default): uses byTopic from web/grouping.js (mirrors lib/grouping.js).
+    for (const shelf of window.byTopic(labs)) {
+      renderShelf('topic:' + shelf.key, 'topic-shelf topic-' + shelf.key, shelf.label || shelf.key, shelf.labs);
+    }
   }
+
   // Mark already-mastered learn labs from saved results.
   for (const l of labs.filter(l => l.type === 'learn')) {
     api('/api/result/' + l.id).then(r => {
@@ -119,6 +161,42 @@ async function loadLabs() {
       }
     }).catch(() => {});
   }
+}
+
+async function loadLabs() {
+  if (!cachedLabs) {
+    cachedLabs = await api('/api/labs');
+  }
+  const labs = cachedLabs;
+  const list = $('#labList');
+  if (!labs.length) { list.innerHTML = '<div class="muted">No labs found.</div>'; return; }
+  renderLabList(labs);
+}
+
+// Wire up the browse toggle buttons (topic/cert).
+// app.js is loaded at the bottom of <body>, so the DOM may already be parsed
+// by the time this runs (DOMContentLoaded would have already fired). We use a
+// readyState check so the wiring always happens regardless of load timing.
+function wireToggleButtons() {
+  const togTopic = document.getElementById('togTopic');
+  const togCert = document.getElementById('togCert');
+  if (togTopic && togCert) {
+    togTopic.onclick = () => {
+      browseMode = 'topic';
+      togTopic.classList.add('on'); togCert.classList.remove('on');
+      if (cachedLabs) renderLabList(cachedLabs);
+    };
+    togCert.onclick = () => {
+      browseMode = 'cert';
+      togCert.classList.add('on'); togTopic.classList.remove('on');
+      if (cachedLabs) renderLabList(cachedLabs);
+    };
+  }
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireToggleButtons);
+} else {
+  wireToggleButtons();
 }
 
 async function openLab(id) {

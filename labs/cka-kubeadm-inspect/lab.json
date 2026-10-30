@@ -1,0 +1,62 @@
+{
+  "id": "cka-kubeadm-inspect",
+  "name": "Inspect a kubeadm cluster",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration (25%). Drill EVERY node-level kubeadm corner harder than the exam: inspect component versions, read the kubelet config and static-pod manifests, mint a worker join token, perform the drain/uncordon maintenance dance, renew control-plane certificates, read an upgrade plan, and a no-hint diagnose-and-fix. All graded exactly on persistent node/cluster state.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "kubeadm"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Inspect component versions",
+      "teach": "Before any upgrade, read what you're running. `kubeadm version -o short` prints the CLI tag; `kubelet --version` prints `Kubernetes v...`. Both binaries live on the node, so reach them with `docker exec` into $CP.\n\n**Gotcha:** a redirect like `docker exec \"$CP\" kubelet --version > /tmp/f` writes to YOUR host, not the node — redirect INSIDE the node: `docker exec \"$CP\" sh -c '... > /tmp/f'`.",
+      "prompt": "On the control-plane node ($CP), capture the kubeadm and kubelet versions and write BOTH, one per line, to `/tmp/versions.txt` on $CP.\n\nTarget: `docker exec \"$CP\" cat /tmp/versions.txt` shows a `kubeadm`/`v…` line and a `Kubernetes v...` (kubelet) line.",
+      "hint": "Redirect INSIDE the node: `docker exec \"$CP\" sh -c 'kubeadm version -o short > /tmp/versions.txt; kubelet --version >> /tmp/versions.txt'`. Confirm with `docker exec \"$CP\" cat /tmp/versions.txt`.",
+      "solution": "docker exec \"$CP\" sh -c 'kubeadm version -o short > /tmp/versions.txt; kubelet --version >> /tmp/versions.txt'\ndocker exec \"$CP\" cat /tmp/versions.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/tmp/versions.txt on $CP has a kubeadm version line + a kubelet 'Kubernetes v...' line",
+          "script": "validate/q1_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Read the kubelet's config file",
+      "teach": "A kubeadm node's kubelet is driven by `/var/lib/kubelet/config.yaml` (a `KubeletConfiguration`). The `cgroupDriver` there MUST match the container runtime's — a mismatch stops the kubelet from starting. Read the file on the node with `docker exec`.\n\n**Gotcha:** this is the component config, NOT the `kubeadm-config` ConfigMap in kube-system — don't confuse the two.",
+      "prompt": "On $CP, read `/var/lib/kubelet/config.yaml` and write ONLY the value of its `cgroupDriver` field (e.g. `systemd` or `cgroupfs`) to `/tmp/cgroupdriver.txt` on $CP.\n\nTarget: `/tmp/cgroupdriver.txt` on $CP contains exactly the cgroupDriver value, nothing else.",
+      "hint": "Grep the field inside the node and strip the key: `docker exec \"$CP\" sh -c \"grep cgroupDriver /var/lib/kubelet/config.yaml | awk '{print \\$2}' > /tmp/cgroupdriver.txt\"`. Confirm with `docker exec \"$CP\" cat /tmp/cgroupdriver.txt`.",
+      "solution": "docker exec \"$CP\" sh -c \"grep cgroupDriver /var/lib/kubelet/config.yaml | awk '{print \\$2}' > /tmp/cgroupdriver.txt\"\ndocker exec \"$CP\" cat /tmp/cgroupdriver.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/tmp/cgroupdriver.txt on $CP matches the cgroupDriver in /var/lib/kubelet/config.yaml",
+          "script": "validate/q2_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Read a static Pod manifest",
+      "teach": "The control-plane components run as **static Pods** — the kubelet starts them straight from manifest files in `/etc/kubernetes/manifests/` (no API server needed). `kube-apiserver.yaml` there pins the apiserver's exact image, which is the version an upgrade bumps.\n\n**Gotcha:** editing these files restarts the component immediately — here you only READ, so don't modify them.",
+      "prompt": "On $CP, read `/etc/kubernetes/manifests/kube-apiserver.yaml` and write the apiserver container's full `image:` value (e.g. `registry.k8s.io/kube-apiserver:v1.31.0`) to `/tmp/apiserver-image.txt` on $CP.\n\nTarget: `/tmp/apiserver-image.txt` on $CP contains an image reference ending in a `kube-apiserver:v<major>.<minor>.<patch>` tag.",
+      "hint": "Pull the image line inside the node: `docker exec \"$CP\" sh -c \"grep 'image:' /etc/kubernetes/manifests/kube-apiserver.yaml | awk '{print \\$2}' > /tmp/apiserver-image.txt\"`. Confirm with `docker exec \"$CP\" cat /tmp/apiserver-image.txt`.",
+      "solution": "docker exec \"$CP\" sh -c \"grep 'image:' /etc/kubernetes/manifests/kube-apiserver.yaml | awk '{print \\$2}' > /tmp/apiserver-image.txt\"\ndocker exec \"$CP\" cat /tmp/apiserver-image.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "/tmp/apiserver-image.txt on $CP holds the kube-apiserver image:tag from the static manifest",
+          "script": "validate/q3_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

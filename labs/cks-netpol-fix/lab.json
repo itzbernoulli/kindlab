@@ -1,0 +1,31 @@
+{
+  "id": "cks-netpol-fix",
+  "name": "Fix a NetworkPolicy blocking the wrong traffic",
+  "type": "learn",
+  "objective": "CKS › Minimize Microservice Vulnerabilities. Drill EVERY NetworkPolicy corner harder than the exam: default-deny ingress & egress, allow-by-pod-label, allow-by-namespace, the AND-vs-OR peer trap, port+protocol scoping, ipBlock with except, allow-DNS, and a no-hint diagnose-and-fix. Graded exactly on the policy spec, per requirement. (kindnet does not enforce policies, so grading is on the authored spec.)",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "network-policy"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a policy blocking the wrong traffic",
+      "teach": "Debugging a NetworkPolicy means reading its spec: check `podSelector` (who it applies to), `policyTypes`, and the exact `from`/`to`/`ports`. A one-field mistake — wrong label, wrong port, wrong selector kind — silently blocks the traffic you meant to allow.\n\n**Gotcha:** fix the existing policy's spec in place; a second overlapping policy only adds more allowed paths, it can't *remove* another policy's restriction.",
+      "prompt": "Policy `allow-api` in `netpol-learn` is meant to let pods labelled `app=web` receive ingress from pods labelled `role=client` on **TCP port 8080**, but it's misconfigured and blocks that traffic. Diagnose and fix it in place — do not rename or recreate from scratch.\n\nTarget end-state: `allow-api` selects `app=web`, `policyTypes: [Ingress]`, one ingress rule from `podSelector` `role=client` on `ports: [{protocol: TCP, port: 8080}]`.",
+      "hint": "`kubectl -n netpol-learn get netpol allow-api -o yaml` and compare each field to the target: the ingress `from` podSelector and/or the port are wrong. Edit it: `kubectl -n netpol-learn edit netpol allow-api`.",
+      "solution": "cat <<'EOF' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: allow-api\n  namespace: netpol-learn\nspec:\n  podSelector:\n    matchLabels:\n      app: web\n  policyTypes:\n  - Ingress\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels:\n          role: client\n    ports:\n    - protocol: TCP\n      port: 8080\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "allow-api fixed: app=web ← podSelector role=client on TCP/8080",
+          "script": "validate/q8_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

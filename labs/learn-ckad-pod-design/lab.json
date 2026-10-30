@@ -3,13 +3,13 @@
   "name": "Learn: Pod Design",
   "category": "CKAD",
   "type": "learn",
-  "objective": "CKAD › Application Design and Build + Observability. Drill EVERY pod-design corner harder than the exam: classic vs native sidecars, init ordering, all three probe types and handlers, lifecycle hooks + graceful shutdown, full securityContext hardening, QoS classes, the Downward API, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "objective": "CKAD \u203a Application Design and Build + Observability. Drill EVERY pod-design corner harder than the exam: classic vs native sidecars, init ordering, all three probe types and handlers, lifecycle hooks + graceful shutdown, full securityContext hardening, QoS classes, the Downward API, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
   "description": "Nine strict practicals covering the whole pod-design surface. Each Check shows which requirements you met and the exact reason for any you missed.",
   "questions": [
     {
       "id": "1",
       "title": "Classic sidecar sharing an emptyDir",
-      "teach": "A **sidecar** is a second container in the same pod. To share files, declare one `emptyDir` volume and mount it in **both** containers (at the same or different `mountPath`). The `emptyDir` is scratch space that lives and dies with the pod.\n\n**Gotcha:** both containers must reference the **same volume name** — a typo gives each its own empty volume, so nothing is shared.",
+      "teach": "A **sidecar** is a second container in the same pod. To share files, declare one `emptyDir` volume and mount it in **both** containers (at the same or different `mountPath`). The `emptyDir` is scratch space that lives and dies with the pod.\n\n**Gotcha:** both containers must reference the **same volume name** \u2014 a typo gives each its own empty volume, so nothing is shared.",
       "prompt": "Create pod `sidecar-pod` in namespace `pod-design` with two containers sharing an `emptyDir`:\n- `writer` (image `busybox:1.36`) running `sh -c 'while true; do date >> /data/out.log; sleep 1; done'`\n- `reader` (image `busybox:1.36`) running `sh -c 'tail -F /data/out.log'`\n\nBoth mount the shared emptyDir at `/data`.",
       "hint": "Define one `volumes: [{name: data, emptyDir: {}}]` and give BOTH containers `volumeMounts: [{name: data, mountPath: /data}]`.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: sidecar-pod, namespace: pod-design }\nspec:\n  containers:\n  - name: writer\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"while true; do date >> /data/out.log; sleep 1; done\"]\n    volumeMounts: [ { name: data, mountPath: /data } ]\n  - name: reader\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"tail -F /data/out.log\"]\n    volumeMounts: [ { name: data, mountPath: /data } ]\n  volumes: [ { name: data, emptyDir: {} } ]\nYAML",
@@ -26,9 +26,9 @@
     {
       "id": "2",
       "title": "Init containers run to completion, in order",
-      "teach": "**initContainers** (under `spec.initContainers`) run **sequentially, to completion** before any app container starts — each must exit 0 before the next begins. They run **top to bottom** in list order and share volumes with the app containers.\n\n**Gotcha:** order is the list order — put `init-a` above `init-b`. A failing init container restarts and the app never starts (`Init:0/2`).",
+      "teach": "**initContainers** (under `spec.initContainers`) run **sequentially, to completion** before any app container starts \u2014 each must exit 0 before the next begins. They run **top to bottom** in list order and share volumes with the app containers.\n\n**Gotcha:** order is the list order \u2014 put `init-a` above `init-b`. A failing init container restarts and the app never starts (`Init:0/2`).",
       "prompt": "Create pod `init-pod` in `pod-design`:\n- init container `init-a` (`busybox:1.36`) runs `sh -c 'echo a > /work/a'`\n- then init container `init-b` (`busybox:1.36`) runs `sh -c 'echo b > /work/b'`\n- main container `app` (`busybox:1.36`) runs `sh -c 'sleep 3600'`\n\nAll three mount the same `emptyDir` at `/work`, and the init containers must be ordered `init-a` then `init-b`.",
-      "hint": "`spec.initContainers` is an ordered list — put `init-a` before `init-b`. Share one emptyDir named e.g. `work` mounted at `/work` in all three containers.",
+      "hint": "`spec.initContainers` is an ordered list \u2014 put `init-a` before `init-b`. Share one emptyDir named e.g. `work` mounted at `/work` in all three containers.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: init-pod, namespace: pod-design }\nspec:\n  initContainers:\n  - name: init-a\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo a > /work/a\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  - name: init-b\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo b > /work/b\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  volumes: [ { name: work, emptyDir: {} } ]\nYAML",
       "verification": [
         {
@@ -58,9 +58,9 @@
     {
       "id": "4",
       "title": "All three probe types, three handlers",
-      "teach": "Three probe kinds: **livenessProbe** restarts a failing container, **readinessProbe** pulls it from Service endpoints, **startupProbe** gates the other two until a slow app is up. Any probe uses one of three handlers: `exec`, `httpGet`, or `tcpSocket`.\n\n**Gotcha:** timing fields (`periodSeconds`, `initialDelaySeconds`, `failureThreshold`) attach per-probe — set each on the right probe.",
+      "teach": "Three probe kinds: **livenessProbe** restarts a failing container, **readinessProbe** pulls it from Service endpoints, **startupProbe** gates the other two until a slow app is up. Any probe uses one of three handlers: `exec`, `httpGet`, or `tcpSocket`.\n\n**Gotcha:** timing fields (`periodSeconds`, `initialDelaySeconds`, `failureThreshold`) attach per-probe \u2014 set each on the right probe.",
       "prompt": "Create pod `health-pod` in `pod-design` (`nginx:1.25`, one container `web`) with all three probes:\n- **livenessProbe**: `exec` running `[\"sh\",\"-c\",\"ls /usr/share/nginx/html\"]`, `periodSeconds=15`.\n- **readinessProbe**: `httpGet` path `/` port `80`, `initialDelaySeconds=5`.\n- **startupProbe**: `tcpSocket` port `80`, `failureThreshold=30`, `periodSeconds=10`.",
-      "hint": "All three go under the same container. Use `exec.command` for liveness, `httpGet` for readiness, `tcpSocket` for startup — mind the exact timing fields.",
+      "hint": "All three go under the same container. Use `exec.command` for liveness, `httpGet` for readiness, `tcpSocket` for startup \u2014 mind the exact timing fields.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: health-pod, namespace: pod-design }\nspec:\n  containers:\n  - name: web\n    image: nginx:1.25\n    livenessProbe:\n      exec: { command: [\"sh\",\"-c\",\"ls /usr/share/nginx/html\"] }\n      periodSeconds: 15\n    readinessProbe:\n      httpGet: { path: /, port: 80 }\n      initialDelaySeconds: 5\n    startupProbe:\n      tcpSocket: { port: 80 }\n      failureThreshold: 30\n      periodSeconds: 10\nYAML",
       "verification": [
         {
@@ -125,8 +125,8 @@
       "id": "7",
       "title": "Quality of Service: make a Guaranteed pod",
       "teach": "A pod's **QoS class** is computed from its resources, not set directly. You get **Guaranteed** by making `requests == limits` for **both** cpu and memory on every container. Verify with `kubectl get pod <p> -o jsonpath='{.status.qosClass}'`.\n\n**Gotcha:** one container missing a limit (or unequal request/limit) drops the whole pod to Burstable.",
-      "prompt": "Create pod `qos-pod` in `pod-design` (`busybox:1.36`, container `app`, `sh -c 'sleep 3600'`) whose QoS class is **Guaranteed** — set requests and limits **equal**: cpu `200m`, memory `256Mi` for both.",
-      "hint": "Set `resources.requests` and `resources.limits` to the SAME values (cpu=200m, memory=256Mi). Verify: `kubectl -n pod-design get pod qos-pod -o jsonpath='{.status.qosClass}'` → Guaranteed.",
+      "prompt": "Create pod `qos-pod` in `pod-design` (`busybox:1.36`, container `app`, `sh -c 'sleep 3600'`) whose QoS class is **Guaranteed** \u2014 set requests and limits **equal**: cpu `200m`, memory `256Mi` for both.",
+      "hint": "Set `resources.requests` and `resources.limits` to the SAME values (cpu=200m, memory=256Mi). Verify: `kubectl -n pod-design get pod qos-pod -o jsonpath='{.status.qosClass}'` \u2192 Guaranteed.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: qos-pod, namespace: pod-design }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    resources:\n      requests: { cpu: 200m, memory: 256Mi }\n      limits: { cpu: 200m, memory: 256Mi }\nYAML",
       "verification": [
         {
@@ -141,7 +141,7 @@
       "id": "8",
       "title": "Downward API: expose pod metadata",
       "teach": "The **Downward API** exposes pod metadata to the app. Use env `valueFrom.fieldRef` for pod fields (`metadata.name`, `metadata.namespace`), env `valueFrom.resourceFieldRef` for a container's `limits`/`requests` (e.g. `limits.cpu`), and a `downwardAPI` **volume** to project fields into files.\n\n**Gotcha:** `metadata.labels`/`annotations` can only be exposed via a **volume**, never an env `fieldRef`.",
-      "prompt": "Create pod `downward-pod` in `pod-design` (`busybox:1.36`, container `app`, `sh -c 'sleep 3600'`), labelled `app=downward`, with cpu limit `500m`, exposing:\n- env `POD_NAME` ← `metadata.name`, env `POD_NS` ← `metadata.namespace`\n- env `CPU_LIMIT` ← `resourceFieldRef` `limits.cpu`\n- a `downwardAPI` **volume** mounted at `/podinfo` with an item `labels` ← `metadata.labels`",
+      "prompt": "Create pod `downward-pod` in `pod-design` (`busybox:1.36`, container `app`, `sh -c 'sleep 3600'`), labelled `app=downward`, with cpu limit `500m`, exposing:\n- env `POD_NAME` \u2190 `metadata.name`, env `POD_NS` \u2190 `metadata.namespace`\n- env `CPU_LIMIT` \u2190 `resourceFieldRef` `limits.cpu`\n- a `downwardAPI` **volume** mounted at `/podinfo` with an item `labels` \u2190 `metadata.labels`",
       "hint": "Env uses `valueFrom.fieldRef` (for metadata.*) and `valueFrom.resourceFieldRef` (for limits.cpu, needs `containerName`). The labels file needs a `downwardAPI` volume with `items: [{path: labels, fieldRef: {fieldPath: metadata.labels}}]`, mounted at /podinfo.",
       "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: downward-pod, namespace: pod-design, labels: { app: downward } }\nspec:\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    resources: { limits: { cpu: 500m } }\n    env:\n    - name: POD_NAME\n      valueFrom: { fieldRef: { fieldPath: metadata.name } }\n    - name: POD_NS\n      valueFrom: { fieldRef: { fieldPath: metadata.namespace } }\n    - name: CPU_LIMIT\n      valueFrom: { resourceFieldRef: { containerName: app, resource: limits.cpu } }\n    volumeMounts: [ { name: podinfo, mountPath: /podinfo } ]\n  volumes:\n  - name: podinfo\n    downwardAPI:\n      items: [ { path: labels, fieldRef: { fieldPath: metadata.labels } } ]\nYAML",
       "verification": [
@@ -162,9 +162,9 @@
     {
       "id": "9",
       "title": "Diagnose & fix: a Deployment that won't go Ready",
-      "teach": "To diagnose a pod that's `Running` but never `Ready`, run `kubectl describe pod <p>` and read **Events** — that's almost always a **readiness probe** pointed at the wrong port/path, so it never answers. Compare the probe target to the port the container actually serves.\n\n**Gotcha:** fix the **Deployment** (its pod template), not the pod — then confirm with `kubectl rollout status`.",
-      "prompt": "Deployment `diag` in `pod-design` has 1 replica but it **never becomes Ready** (`kubectl -n pod-design get deploy diag` shows `0/1`). Diagnose the fault and fix it so the Deployment reports an available replica. Don't delete and rebuild from scratch — find and fix what's wrong.\n\nTarget: Deployment `diag` has at least 1 available replica.",
-      "hint": "`kubectl -n pod-design describe pod -l app=diag` → the readiness probe is failing. Compare the probe's port to the port the container (`nginx:1.25`) actually serves on. Fix the Deployment's readiness probe (`kubectl -n pod-design edit deploy diag`), then watch `rollout status`.",
+      "teach": "To diagnose a pod that's `Running` but never `Ready`, run `kubectl describe pod <p>` and read **Events** \u2014 that's almost always a **readiness probe** pointed at the wrong port/path, so it never answers. Compare the probe target to the port the container actually serves.\n\n**Gotcha:** fix the **Deployment** (its pod template), not the pod \u2014 then confirm with `kubectl rollout status`.",
+      "prompt": "Deployment `diag` in `pod-design` has 1 replica but it **never becomes Ready** (`kubectl -n pod-design get deploy diag` shows `0/1`). Diagnose the fault and fix it so the Deployment reports an available replica. Don't delete and rebuild from scratch \u2014 find and fix what's wrong.\n\nTarget: Deployment `diag` has at least 1 available replica.",
+      "hint": "`kubectl -n pod-design describe pod -l app=diag` \u2192 the readiness probe is failing. Compare the probe's port to the port the container (`nginx:1.25`) actually serves on. Fix the Deployment's readiness probe (`kubectl -n pod-design edit deploy diag`), then watch `rollout status`.",
       "solution": "# The readiness probe targets port 8080, but nginx serves on 80.\nkubectl -n pod-design patch deployment diag --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/httpGet/port\",\"value\":80}]'\nkubectl -n pod-design rollout status deployment/diag",
       "verification": [
         {
@@ -175,5 +175,12 @@
         }
       ]
     }
-  ]
+  ],
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "pod-design"
+  ],
+  "troubleshooting": true
 }

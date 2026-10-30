@@ -1,0 +1,79 @@
+{
+  "id": "cka-clusterops-node-maint",
+  "name": "Node maintenance: taint, drain, uncordon, label",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Maintenance & Troubleshooting. Drill EVERY node-level cluster-ops corner harder than the exam: static pods and mirror pods, repairing a crash-looping control-plane component, etcd snapshot backup, node taints and labels, cordon/drain for maintenance, uncordon to return a node, and a no-hint diagnose-and-fix. Graded exactly on persistent node/cluster state via docker exec and kubectl -o json.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "cluster-ops"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Taint a node (NoSchedule)",
+      "teach": "A **taint** repels pods lacking a matching **toleration**: `kubectl taint nodes <node> key=value:effect`. `NoSchedule` blocks new pods that don't tolerate it; it is recorded in the node's `spec.taints`.\n\n**Gotcha:** a taint only affects *scheduling* of new pods — it does NOT evict already-running pods (that behavior is `NoExecute`).",
+      "prompt": "Taint worker node `$W1` so ordinary pods won't schedule there: key `workload`, value `batch`, effect `NoSchedule`.\n\nTarget: `$W1` has a taint `workload=batch:NoSchedule` in `spec.taints`.",
+      "hint": "`kubectl taint nodes $W1 workload=batch:NoSchedule`. Inspect with `kubectl get node $W1 -o jsonpath='{.spec.taints}'`.",
+      "solution": "kubectl taint nodes \"$W1\" workload=batch:NoSchedule",
+      "verification": [
+        {
+          "id": "1",
+          "description": "$W1 has taint workload=batch:NoSchedule",
+          "script": "validate/q4_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Cordon and drain a node",
+      "teach": "To prep a node for maintenance, `kubectl cordon` sets `spec.unschedulable=true` (no *new* pods); `kubectl drain` then evicts existing pods (and cordons automatically). Pass `--ignore-daemonsets` and `--delete-emptydir-data`.\n\n**Gotcha:** without those two flags, drain refuses — read the error, add the flag, rerun.",
+      "prompt": "Node `$W2` needs maintenance. Cordon it, then drain it (ignoring DaemonSets and deleting emptyDir data).\n\nTarget: `$W2` is cordoned — `spec.unschedulable=true` — and the drain completed.",
+      "hint": "`kubectl cordon $W2`, then `kubectl drain $W2 --ignore-daemonsets --delete-emptydir-data`.",
+      "solution": "kubectl cordon \"$W2\"\nkubectl drain \"$W2\" --ignore-daemonsets --delete-emptydir-data",
+      "verification": [
+        {
+          "id": "1",
+          "description": "node $W2 is cordoned (unschedulable=true)",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Uncordon the control-plane",
+      "teach": "`kubectl uncordon <node>` reverses a cordon, setting `spec.unschedulable=false` to return the node to service. It does **not** pull back pods that drain evicted — the scheduler places *new* pods there over time.\n\n**Gotcha:** `uncordon` takes a **node** name (not a pod) and is idempotent — running it on a schedulable node is a no-op.",
+      "prompt": "The control-plane node `$CP` was cordoned for maintenance. Bring it back into service.\n\nTarget: `$CP` is schedulable again — `spec.unschedulable` is not `true`.",
+      "hint": "`kubectl uncordon $CP`. Verify with `kubectl get node $CP` (no `SchedulingDisabled`).",
+      "solution": "kubectl uncordon \"$CP\"",
+      "setup": "setup/q6_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "control-plane $CP is schedulable again (uncordoned)",
+          "script": "validate/q6_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Label a node",
+      "teach": "Node **labels** are `key=value` metadata used by `nodeSelector`/affinity to steer scheduling. Add one with `kubectl label node <node> key=value`; replace an existing key with `--overwrite`.\n\n**Gotcha:** labels (`metadata.labels`, for selection) are NOT taints (`spec.taints`, for repelling) — this step wants a label.",
+      "prompt": "Label worker node `$W2` with `disk=ssd` so a storage workload can target it.\n\nTarget: `$W2` has label `disk=ssd` in `metadata.labels`.",
+      "hint": "`kubectl label node $W2 disk=ssd`. Check with `kubectl get node $W2 --show-labels` or `-o jsonpath='{.metadata.labels.disk}'`.",
+      "solution": "kubectl label node \"$W2\" disk=ssd --overwrite",
+      "verification": [
+        {
+          "id": "1",
+          "description": "$W2 has label disk=ssd",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

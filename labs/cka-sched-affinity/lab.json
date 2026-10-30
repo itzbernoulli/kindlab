@@ -1,0 +1,62 @@
+{
+  "id": "cka-sched-affinity",
+  "name": "Node & pod affinity",
+  "type": "learn",
+  "objective": "CKA › Workloads & Scheduling. Drill EVERY way to control where pods land, harder than the exam: node labels + nodeSelector, taints & tolerations (Equal + Exists), required and preferred nodeAffinity, pod anti-affinity spread, manual nodeName scheduling, DaemonSet coverage, and a no-hint diagnose-and-fix for an unschedulable pod. Graded exactly, per requirement.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "scheduling"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Required nodeAffinity (In operator)",
+      "teach": "**nodeAffinity** (`spec.affinity.nodeAffinity`) is a richer nodeSelector using `matchExpressions` with operators `In`, `NotIn`, `Exists`, `Gt`, `Lt`. The **hard** form `requiredDuringSchedulingIgnoredDuringExecution` must be satisfied or the pod stays `Pending`.\n\n**Gotcha:** affinity attracts but doesn't defeat taints — since `$W1` is now tainted, this pod also needs a toleration.",
+      "prompt": "Node `$W1` is labeled `tier=gold`. In `sched-learn` create pod `affinity-pod` (`busybox:1.36`, `sleep 3600`) using **required** nodeAffinity matching `tier In [gold]`, tolerating any taint so it can land on `$W1`.\n\nTarget: `affinity-pod` is `Running` on the `tier=gold` node via required nodeAffinity.",
+      "hint": "Under `requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0]` set `key: tier`, `operator: In`, `values: [gold]`. Add `tolerations: [{operator: Exists}]`.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: affinity-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        nodeSelectorTerms:\n        - matchExpressions:\n          - key: tier\n            operator: In\n            values: [\"gold\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "affinity-pod Running on tier=gold node via required nodeAffinity",
+          "script": "validate/c3.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Preferred nodeAffinity (soft, weighted)",
+      "teach": "The **soft** form `preferredDuringSchedulingIgnoredDuringExecution` is a *preference*, not a rule: each entry has a `weight` (1–100) and a `preference` term. The scheduler favors matching nodes but still schedules elsewhere if none match.\n\n**Gotcha:** preferred affinity never leaves a pod `Pending` — if no node matches it just lands somewhere else, so you can't rely on it for a hard placement requirement.",
+      "prompt": "In `sched-learn` create pod `prefer-pod` (`busybox:1.36`, `sleep 3600`) that **prefers** (weight `80`) nodes labeled `zone=b`, tolerating any taint. Node `$W2` is labeled `zone=b`.\n\nTarget: `prefer-pod` is `Running` and declares a `preferredDuringScheduling` nodeAffinity entry of weight `80` matching `zone In [b]`.",
+      "hint": "`preferredDuringSchedulingIgnoredDuringExecution: [{weight: 80, preference: {matchExpressions: [{key: zone, operator: In, values: [b]}]}}]`; add `tolerations: [{operator: Exists}]`.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata:\n  name: prefer-pod\n  namespace: sched-learn\nspec:\n  affinity:\n    nodeAffinity:\n      preferredDuringSchedulingIgnoredDuringExecution:\n      - weight: 80\n        preference:\n          matchExpressions:\n          - key: zone\n            operator: In\n            values: [\"b\"]\n  tolerations:\n  - operator: Exists\n  containers:\n  - name: c\n    image: busybox:1.36\n    command: [\"sleep\",\"3600\"]\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "prefer-pod Running with preferred nodeAffinity weight 80, zone In [b]",
+          "script": "validate/c4.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Pod anti-affinity (spread across nodes)",
+      "teach": "**podAntiAffinity** keeps pods apart: the required form with `topologyKey: kubernetes.io/hostname` and a `labelSelector` matching the pod's own label forces replicas onto **different** nodes. The scheduler won't co-locate two matching pods on one host.\n\n**Gotcha:** if replicas exceed available nodes, the extra pods stay `Pending` — hard anti-affinity can't double up on a host.",
+      "prompt": "In `sched-learn` create a 2-replica Deployment `spread` (`busybox:1.36`, `sleep 3600`, pod label `app=spread`) with **required** podAntiAffinity on `topologyKey: kubernetes.io/hostname` matching `app=spread`, tolerating any taint.\n\nTarget: both `spread` replicas are `Running` on **different** nodes via required podAntiAffinity.",
+      "hint": "`affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution: [{labelSelector: {matchLabels: {app: spread}}, topologyKey: kubernetes.io/hostname}]`; add `tolerations: [{operator: Exists}]` so both nodes are usable.",
+      "solution": "cat <<EOF | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: spread\n  namespace: sched-learn\nspec:\n  replicas: 2\n  selector:\n    matchLabels:\n      app: spread\n  template:\n    metadata:\n      labels:\n        app: spread\n    spec:\n      tolerations:\n      - operator: Exists\n      affinity:\n        podAntiAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n          - labelSelector:\n              matchLabels:\n                app: spread\n            topologyKey: kubernetes.io/hostname\n      containers:\n      - name: c\n        image: busybox:1.36\n        command: [\"sleep\",\"3600\"]\nEOF",
+      "verification": [
+        {
+          "id": "1",
+          "description": "spread: 2 replicas Running on 2 distinct nodes via required podAntiAffinity",
+          "script": "validate/c7.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

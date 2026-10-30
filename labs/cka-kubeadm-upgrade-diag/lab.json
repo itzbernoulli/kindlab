@@ -1,0 +1,67 @@
+{
+  "id": "cka-kubeadm-upgrade-diag",
+  "name": "Upgrade plan, drain & schedule diagnosis",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Installation & Configuration (25%). Drill EVERY node-level kubeadm corner harder than the exam: inspect component versions, read the kubelet config and static-pod manifests, mint a worker join token, perform the drain/uncordon maintenance dance, renew control-plane certificates, read an upgrade plan, and a no-hint diagnose-and-fix. All graded exactly on persistent node/cluster state.",
+  "certs": [
+    "CKA"
+  ],
+  "topics": [
+    "kubeadm",
+    "cluster-ops",
+    "scheduling"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Drain then uncordon a node",
+      "teach": "For node maintenance you `drain` (cordon + evict pods), do the work, then `uncordon` to let the scheduler use the node again: `kubectl drain <node>`, then `kubectl uncordon <node>`.\n\n**Gotcha:** plain `drain` errors on real nodes — you need `--ignore-daemonsets`, plus `--force` to evict a bare (unmanaged) pod and `--delete-emptydir-data` if a pod uses emptyDir.",
+      "prompt": "A bare Pod `drain-me` is pinned to worker $W2. Drain $W2 (evicting the workload), then uncordon it when \"maintenance\" is done.\n\nTarget: $W2 ends `schedulable` (`.spec.unschedulable` unset) AND no running `drain-me` pod remains on $W2.",
+      "hint": "`kubectl drain \"$W2\" --ignore-daemonsets --delete-emptydir-data --force`, confirm with `kubectl get pods -o wide`, then `kubectl uncordon \"$W2\"`.",
+      "solution": "kubectl drain \"$W2\" --ignore-daemonsets --delete-emptydir-data --force\nkubectl get pods -o wide\nkubectl uncordon \"$W2\"\nkubectl get node \"$W2\"",
+      "verification": [
+        {
+          "id": "1",
+          "description": "$W2 is schedulable and holds no running drain-me pod",
+          "script": "validate/q5_s1.sh",
+          "weightage": 13
+        }
+      ],
+      "setup": "setup/q5_setup.sh"
+    },
+    {
+      "id": "2",
+      "title": "Read a kubeadm upgrade plan",
+      "teach": "`kubeadm upgrade plan` is a READ-ONLY report: it lists which versions you can upgrade to and the components it would bump. You run it before `kubeadm upgrade apply v1.X.Y`. The plan reasons about the running server (apiserver) version, which `kubectl version` reports.\n\n**Gotcha:** parse the version with `kubectl version -o json` — the old `--short` flag was removed.",
+      "prompt": "On $CP, run `kubeadm upgrade plan` to read it. To prove the control plane is healthy and reporting a version, write the server (apiserver) version string to `/tmp/serverversion.txt` on $CP.\n\nTarget: `/tmp/serverversion.txt` on $CP contains a `v<major>.<minor>.<patch>` Kubernetes version.",
+      "hint": "`docker exec \"$CP\" kubeadm upgrade plan`. Then capture the server version onto the node: `docker exec \"$CP\" sh -c 'kubectl --kubeconfig /etc/kubernetes/admin.conf version -o json | grep -oE \"v[0-9]+\\.[0-9]+\\.[0-9]+\" | head -1 > /tmp/serverversion.txt'`.",
+      "solution": "docker exec \"$CP\" kubeadm upgrade plan\ndocker exec \"$CP\" sh -c 'kubectl --kubeconfig /etc/kubernetes/admin.conf version -o json | grep -oE \"v[0-9]+\\.[0-9]+\\.[0-9]+\" | head -1 > /tmp/serverversion.txt'\ndocker exec \"$CP\" cat /tmp/serverversion.txt",
+      "verification": [
+        {
+          "id": "1",
+          "description": "server version captured to /tmp/serverversion.txt on $CP",
+          "script": "validate/q7_s1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Diagnose & fix: a Pod that won't schedule",
+      "teach": "A Pod stuck `Pending` with no node is a scheduling problem. `kubectl describe pod <p>` Events show the reason — a common one is every candidate node being `unschedulable` (cordoned), so the scheduler has nowhere to place it.\n\n**Gotcha:** fix the NODE (uncordon it), not the pod — an already-created Pending pod schedules on its own once a matching node becomes schedulable.",
+      "prompt": "Pod `maint-app` in `default` is stuck `Pending` — it is pinned (via nodeSelector) to a worker that is currently cordoned. Diagnose WHY it won't schedule and fix it so it runs. Do NOT delete or recreate the pod, and do NOT edit the pod's nodeSelector.\n\nTarget: pod `maint-app` is `Running` AND the worker it targets is schedulable.",
+      "hint": "`kubectl describe pod maint-app` and `kubectl get nodes` — one worker shows `SchedulingDisabled`. That's $W1. Uncordon it: `kubectl uncordon \"$W1\"`, then watch `kubectl get pod maint-app -o wide`.",
+      "solution": "kubectl describe pod maint-app\nkubectl get nodes\n# $W1 is cordoned (SchedulingDisabled) and maint-app's nodeSelector pins it there\nkubectl uncordon \"$W1\"\nkubectl get pod maint-app -o wide",
+      "verification": [
+        {
+          "id": "1",
+          "description": "maint-app is Running and its target worker ($W1) is schedulable",
+          "script": "validate/q8_s1.sh",
+          "weightage": 13
+        }
+      ],
+      "setup": "setup/q8_setup.sh"
+    }
+  ],
+  "troubleshooting": true
+}

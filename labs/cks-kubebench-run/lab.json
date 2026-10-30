@@ -1,0 +1,48 @@
+{
+  "id": "cks-kubebench-run",
+  "name": "Run kube-bench against node and master",
+  "type": "learn",
+  "objective": "CKS › Cluster Setup + System Hardening (10% + 15%). Drill the kube-bench workflow harder than the exam: run it as a Job against node AND master, read [PASS]/[FAIL]/[WARN], then remediate every recurring finding — manifest & PKI file modes, the kubelet read-only port, the apiserver NodeRestriction plugin — plus a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKS"
+  ],
+  "topics": [
+    "hardening"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Audit a worker node with kube-bench",
+      "teach": "**kube-bench** audits a node against the **CIS Kubernetes Benchmark**, printing `[PASS]`, `[FAIL]`, or `[WARN]` per numbered control. Because it inspects the host's real files, run it **on the node** — as a Job with `hostPID: true` and hostPath mounts — and read findings from the pod logs.\n\n**Gotcha:** a plain pod without `hostPID` and host mounts reads the container's filesystem, not the host, giving bogus results.",
+      "prompt": "In namespace `cks-bench`, create a Job named `kube-bench` using image `aquasec/kube-bench:latest` with args `[\"run\",\"--targets\",\"node\"]`, `hostPID: true`, `restartPolicy: Never`, and hostPath mounts for `/var/lib/kubelet`, `/etc/kubernetes`, and `/etc/systemd`. Wait for it to complete.\n\nTarget: Job `kube-bench` in `cks-bench` has a completed pod whose logs contain at least one of `[PASS]`, `[FAIL]`, `[WARN]`.",
+      "hint": "Apply a Job with `restartPolicy: Never`, `hostPID: true`, image `aquasec/kube-bench:latest`, args `[\"run\",\"--targets\",\"node\"]`, and hostPath volumes for the three host paths. Then `kubectl -n cks-bench logs job/kube-bench | grep -E '\\[(PASS|FAIL|WARN)\\]'`.",
+      "solution": "kubectl apply -f - <<'YAML'\napiVersion: batch/v1\nkind: Job\nmetadata: { name: kube-bench, namespace: cks-bench }\nspec:\n  backoffLimit: 1\n  template:\n    spec:\n      hostPID: true\n      restartPolicy: Never\n      containers:\n      - name: kube-bench\n        image: aquasec/kube-bench:latest\n        command: [\"kube-bench\"]\n        args: [\"run\",\"--targets\",\"node\"]\n        volumeMounts:\n        - { name: var-lib-kubelet, mountPath: /var/lib/kubelet, readOnly: true }\n        - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }\n        - { name: etc-systemd, mountPath: /etc/systemd, readOnly: true }\n      volumes:\n      - { name: var-lib-kubelet, hostPath: { path: /var/lib/kubelet } }\n      - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }\n      - { name: etc-systemd, hostPath: { path: /etc/systemd } }\nYAML\nkubectl -n cks-bench wait --for=condition=complete job/kube-bench --timeout=120s\nkubectl -n cks-bench logs job/kube-bench | grep -E '\\[(PASS|FAIL|WARN)\\]' | head",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job kube-bench completed with hostPID and host mounts; logs contain CIS [PASS]/[FAIL]/[WARN]",
+          "script": "validate/q1_s1.sh",
+          "weightage": 16
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Audit the control plane (--targets master)",
+      "teach": "`--targets node` only covers the kubelet/worker checks (CIS section 4). The control-plane checks (apiserver, scheduler, etcd — CIS section 1) live under `--targets master` and only appear when kube-bench runs **on a control-plane node** where those files exist.\n\n**Gotcha:** a master-targets Job landing on a worker finds no control-plane files — pin it to the control-plane node with a nodeSelector + toleration.",
+      "prompt": "In `cks-bench`, create a Job named `kube-bench-master` (`aquasec/kube-bench:latest`, args `[\"run\",\"--targets\",\"master\"]`, `hostPID: true`, `restartPolicy: Never`, same three hostPath mounts) that is pinned to the control-plane node so it can read `/etc/kubernetes/manifests`. Wait for completion.\n\nTarget: Job `kube-bench-master` completed on the control-plane node; its logs contain a CIS **1.x** master finding (e.g. `[PASS] 1.` or `[FAIL] 1.`).",
+      "hint": "Add `nodeSelector: { node-role.kubernetes.io/control-plane: \"\" }` and a control-plane toleration so it lands on `$CP`. Use args `[\"run\",\"--targets\",\"master\"]`. Then `kubectl -n cks-bench logs job/kube-bench-master | grep -E '\\[(PASS|FAIL|WARN)\\] 1\\.'`.",
+      "solution": "kubectl apply -f - <<'YAML'\napiVersion: batch/v1\nkind: Job\nmetadata: { name: kube-bench-master, namespace: cks-bench }\nspec:\n  backoffLimit: 1\n  template:\n    spec:\n      hostPID: true\n      restartPolicy: Never\n      nodeSelector: { node-role.kubernetes.io/control-plane: \"\" }\n      tolerations:\n      - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }\n      containers:\n      - name: kube-bench\n        image: aquasec/kube-bench:latest\n        command: [\"kube-bench\"]\n        args: [\"run\",\"--targets\",\"master\"]\n        volumeMounts:\n        - { name: var-lib-kubelet, mountPath: /var/lib/kubelet, readOnly: true }\n        - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }\n        - { name: etc-systemd, mountPath: /etc/systemd, readOnly: true }\n      volumes:\n      - { name: var-lib-kubelet, hostPath: { path: /var/lib/kubelet } }\n      - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }\n      - { name: etc-systemd, hostPath: { path: /etc/systemd } }\nYAML\nkubectl -n cks-bench wait --for=condition=complete job/kube-bench-master --timeout=120s\nkubectl -n cks-bench logs job/kube-bench-master | grep -E '\\[(PASS|FAIL|WARN)\\] 1\\.' | head",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job kube-bench-master ran on the control plane and logged CIS section 1.x (master) findings",
+          "script": "validate/q2_s1.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

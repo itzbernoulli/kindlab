@@ -5,3 +5,7 @@
 node_modules/
 *.log
 .DS_Store
+
+# stray TLS test artifacts from ingress-tls lab verification
+tls.crt
+tls.key

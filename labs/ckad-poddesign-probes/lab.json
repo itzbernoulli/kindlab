@@ -1,0 +1,59 @@
+{
+  "id": "ckad-poddesign-probes",
+  "name": "Probes, lifecycle & graceful shutdown",
+  "type": "learn",
+  "objective": "CKAD › Application Design and Build + Observability. Drill EVERY pod-design corner harder than the exam: classic vs native sidecars, init ordering, all three probe types and handlers, lifecycle hooks + graceful shutdown, full securityContext hardening, QoS classes, the Downward API, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "pod-design",
+    "observability"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "All three probe types, three handlers",
+      "teach": "Three probe kinds: **livenessProbe** restarts a failing container, **readinessProbe** pulls it from Service endpoints, **startupProbe** gates the other two until a slow app is up. Any probe uses one of three handlers: `exec`, `httpGet`, or `tcpSocket`.\n\n**Gotcha:** timing fields (`periodSeconds`, `initialDelaySeconds`, `failureThreshold`) attach per-probe — set each on the right probe.",
+      "prompt": "Create pod `health-pod` in `pod-design` (`nginx:1.25`, one container `web`) with all three probes:\n- **livenessProbe**: `exec` running `[\"sh\",\"-c\",\"ls /usr/share/nginx/html\"]`, `periodSeconds=15`.\n- **readinessProbe**: `httpGet` path `/` port `80`, `initialDelaySeconds=5`.\n- **startupProbe**: `tcpSocket` port `80`, `failureThreshold=30`, `periodSeconds=10`.",
+      "hint": "All three go under the same container. Use `exec.command` for liveness, `httpGet` for readiness, `tcpSocket` for startup — mind the exact timing fields.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: health-pod, namespace: pod-design }\nspec:\n  containers:\n  - name: web\n    image: nginx:1.25\n    livenessProbe:\n      exec: { command: [\"sh\",\"-c\",\"ls /usr/share/nginx/html\"] }\n      periodSeconds: 15\n    readinessProbe:\n      httpGet: { path: /, port: 80 }\n      initialDelaySeconds: 5\n    startupProbe:\n      tcpSocket: { port: 80 }\n      failureThreshold: 30\n      periodSeconds: 10\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "livenessProbe: exec, periodSeconds 15",
+          "script": "validate/c4a.sh",
+          "weightage": 5
+        },
+        {
+          "id": "2",
+          "description": "readinessProbe: httpGet / :80, initialDelaySeconds 5",
+          "script": "validate/c4b.sh",
+          "weightage": 5
+        },
+        {
+          "id": "3",
+          "description": "startupProbe: tcpSocket :80, failureThreshold 30, period 10",
+          "script": "validate/c4c.sh",
+          "weightage": 4
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Lifecycle hooks + graceful shutdown",
+      "teach": "**Lifecycle hooks** on a container run code around its life: `lifecycle.postStart` fires right after the container starts, `lifecycle.preStop` fires before SIGTERM on shutdown. `terminationGracePeriodSeconds` (on the pod `spec`) is how long preStop + SIGTERM get before SIGKILL.\n\n**Gotcha:** a `preStop` that runs longer than `terminationGracePeriodSeconds` is cut off by SIGKILL.",
+      "prompt": "Create pod `graceful-pod` in `pod-design` (`nginx:1.25`, container `web`) with:\n- `lifecycle.postStart` exec `[\"sh\",\"-c\",\"echo started > /tmp/poststart\"]`\n- `lifecycle.preStop` exec `[\"sh\",\"-c\",\"nginx -s quit\"]`\n- `terminationGracePeriodSeconds: 30`",
+      "hint": "`lifecycle.postStart.exec.command` and `lifecycle.preStop.exec.command` live on the container; `terminationGracePeriodSeconds` lives on the pod `spec`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: graceful-pod, namespace: pod-design }\nspec:\n  terminationGracePeriodSeconds: 30\n  containers:\n  - name: web\n    image: nginx:1.25\n    lifecycle:\n      postStart: { exec: { command: [\"sh\",\"-c\",\"echo started > /tmp/poststart\"] } }\n      preStop: { exec: { command: [\"sh\",\"-c\",\"nginx -s quit\"] } }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "graceful-pod: postStart + preStop exec hooks + terminationGracePeriodSeconds 30",
+          "script": "validate/c5.sh",
+          "weightage": 10
+        }
+      ]
+    }
+  ]
+}

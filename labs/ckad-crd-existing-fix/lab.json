@@ -1,0 +1,66 @@
+{
+  "id": "ckad-crd-existing-fix",
+  "name": "Work with existing CRDs (discover & validate)",
+  "type": "learn",
+  "objective": "CKAD › Application Environment, Configuration and Security. Drill EVERY CRD corner harder than the exam: author a typed CRD, create and inspect CRs, discover an installed CRD, list via plural/short name, enforce schema validation (required + enum), cluster-scoped CRDs, and a no-hint diagnose-and-fix on a CRD that won't serve. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "crd"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Discover a CRD already on the cluster",
+      "teach": "On real clusters operators install their own CRDs you must discover blind: `kubectl api-resources --api-group=demo.example.com` lists the kinds, and `kubectl get crd gizmos.demo.example.com -o yaml` reveals the schema. Then create CRs against the discovered group/version.\n\n**Gotcha:** a CR's `apiVersion` is the group plus the version where `served: true` (`demo.example.com/v1`) — read it off the CRD, don't guess.",
+      "prompt": "Setup already installed a CRD for kind `Gizmo` in group `demo.example.com` (plural `gizmos`, namespaced, `spec.power` integer). Discover it, then create a `Gizmo` named `turbo` in `crd-learn` with `spec.power: 9`.\n\nTarget: `kubectl -n crd-learn get gizmo turbo` exists with `.spec.power == 9`.",
+      "hint": "Find it: `kubectl api-resources --api-group=demo.example.com`. Inspect: `kubectl get crd gizmos.demo.example.com -o yaml`. Then apply a `demo.example.com/v1` `Gizmo` with `spec.power: 9`.",
+      "solution": "kubectl api-resources --api-group=demo.example.com\ncat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Gizmo\nmetadata:\n  name: turbo\nspec:\n  power: 9\nYAML\nkubectl -n crd-learn get gizmo turbo -o jsonpath='{.spec.power}'",
+      "setup": "setup/q3_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Gizmo 'turbo' (seeded CRD) in crd-learn with power=9",
+          "script": "validate/q3_s1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Schema validation: required field + enum",
+      "teach": "An `openAPIV3Schema` enforces data: `required: [model]` rejects CRs missing that field, and `enum: [eco, turbo]` rejects any other value. The API server validates on apply, so a bad CR fails fast with a clear error.\n\n**Gotcha:** the seeded `Robot` CRD requires `spec.model` and restricts `spec.mode` to `eco`/`turbo` — a CR missing `model` or using `mode: fast` is rejected; your CR must satisfy both.",
+      "prompt": "Setup installed a namespaced CRD `robots.demo.example.com` (kind `Robot`) whose schema **requires** `spec.model` (string) and restricts `spec.mode` to the enum `eco` or `turbo`. Create a valid `Robot` named `r2d2` in `crd-learn` with `spec.model: astromech` and `spec.mode: turbo`.\n\nTarget: `kubectl -n crd-learn get robot r2d2` exists with `.spec.model == astromech` and `.spec.mode == turbo`.",
+      "hint": "Inspect the schema with `kubectl get crd robots.demo.example.com -o yaml`. Apply a `demo.example.com/v1` `Robot` with `spec.model: astromech` and `spec.mode: turbo` (both required/valid-enum).",
+      "solution": "cat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Robot\nmetadata:\n  name: r2d2\nspec:\n  model: astromech\n  mode: turbo\nYAML\nkubectl -n crd-learn get robot r2d2 -o jsonpath='{.spec.model}/{.spec.mode}'",
+      "setup": "setup/q5_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Robot 'r2d2' in crd-learn with model=astromech, mode=turbo (passed required+enum validation)",
+          "script": "validate/q5_s1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Diagnose & fix: a CRD that won't serve",
+      "teach": "A CRD can be installed and Established yet still refuse to create CRs when its only version has `served: false` — the REST endpoint isn't exposed, so `kubectl apply` fails with `the server could not find the requested resource`. Flip that version's `served` to `true`.\n\n**Gotcha:** `served` and `storage` are independent per-version flags; a version can be the storage version but still be unserved. Patch the CRD, don't recreate it.",
+      "prompt": "Setup installed a namespaced CRD `sprockets.demo.example.com` (kind `Sprocket`, `spec.teeth` integer), but creating a `Sprocket` fails. Diagnose why and fix the CRD so its `v1` is served, then create a `Sprocket` named `sp1` in `crd-learn` with `spec.teeth: 12`. Do not delete and recreate the CRD — patch it.\n\nTarget: CRD `sprockets.demo.example.com` version `v1` has `served: true`, and `kubectl -n crd-learn get sprocket sp1` exists with `.spec.teeth == 12`.",
+      "hint": "`kubectl get crd sprockets.demo.example.com -o yaml` → `versions[0].served: false`. Patch it: `kubectl patch crd sprockets.demo.example.com --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/versions/0/served\",\"value\":true}]'`. Then apply the `demo.example.com/v1` `Sprocket` with `spec.teeth: 12`.",
+      "solution": "# The only version has served:false, so no REST endpoint exists for Sprocket.\nkubectl patch crd sprockets.demo.example.com --type=json -p '[{\"op\":\"replace\",\"path\":\"/spec/versions/0/served\",\"value\":true}]'\nkubectl wait --for=condition=Established crd/sprockets.demo.example.com --timeout=30s\ncat <<'YAML' | kubectl -n crd-learn apply -f -\napiVersion: demo.example.com/v1\nkind: Sprocket\nmetadata:\n  name: sp1\nspec:\n  teeth: 12\nYAML\nkubectl -n crd-learn get sprocket sp1 -o jsonpath='{.spec.teeth}'",
+      "setup": "setup/q7_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sprockets CRD v1 served=true; Sprocket sp1 in crd-learn with teeth=12",
+          "script": "validate/q7_s1.sh",
+          "weightage": 15
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

@@ -1,0 +1,63 @@
+{
+  "id": "ckad-svc-ingress-endpoints",
+  "name": "Session affinity, Ingress & manual endpoints",
+  "type": "learn",
+  "objective": "CKAD › Services & Networking. Drill every Service shape and the Ingress/endpoints surface: ClusterIP with named targetPort, NodePort on a pinned port, headless, ExternalName, sessionAffinity, Ingress (pathType/ingressClassName/TLS), a selector-less Service + manual EndpointSlice, and a no-hint 'no endpoints' diagnose-fix. Graded exactly.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "services",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Session affinity",
+      "teach": "`sessionAffinity: ClientIP` pins each client IP to the same pod (sticky sessions). Tune the stickiness window with `sessionAffinityConfig.clientIP.timeoutSeconds`.\n\n**Gotcha:** the timeout lives under `sessionAffinityConfig`, not directly on `sessionAffinity`.",
+      "prompt": "Create a ClusterIP Service `web-sa` for `app=web` on port 80 with **ClientIP session affinity** and a timeout of **3600** seconds.\n\nTarget: `web-sa` has `sessionAffinity: ClientIP` and `sessionAffinityConfig.clientIP.timeoutSeconds: 3600`.",
+      "hint": "`spec.sessionAffinity: ClientIP` and `spec.sessionAffinityConfig.clientIP.timeoutSeconds: 3600`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: web-sa, namespace: svcnet-learn }\nspec:\n  selector: { app: web }\n  ports: [ { port: 80, targetPort: 80 } ]\n  sessionAffinity: ClientIP\n  sessionAffinityConfig: { clientIP: { timeoutSeconds: 3600 } }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-sa sessionAffinity ClientIP, timeout 3600",
+          "script": "validate/c5.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Ingress with pathType, class, and TLS",
+      "teach": "An **Ingress** routes HTTP(S) to Services by host/path. Three fields here: `ingressClassName` picks the controller, each path's `pathType`, and `tls` to terminate HTTPS with a tls Secret.\n\n**Gotcha:** `pathType` is required on every path — omitting it is rejected.",
+      "prompt": "Create an Ingress `web-ing` in `svcnet-learn`:\n- `ingressClassName: nginx`\n- host `myapp.local`, one path `/` with `pathType: Prefix` → Service `web-svc` port `80`\n- TLS for host `myapp.local` using secret `web-tls`\n\nTarget: `web-ing` has ingressClassName nginx, the Prefix `/` rule to web-svc:80, and a tls entry with secretName web-tls.",
+      "hint": "Set `spec.ingressClassName: nginx`, a rule with `pathType: Prefix` and `backend.service.name: web-svc` / `port.number: 80`, and `spec.tls: [{hosts: [myapp.local], secretName: web-tls}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: web-ing, namespace: svcnet-learn }\nspec:\n  ingressClassName: nginx\n  tls: [ { hosts: [ myapp.local ], secretName: web-tls } ]\n  rules:\n  - host: myapp.local\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend: { service: { name: web-svc, port: { number: 80 } } }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web-ing: class nginx, Prefix / -> web-svc:80, TLS secret web-tls",
+          "script": "validate/c6.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Selector-less Service + manual EndpointSlice",
+      "teach": "A Service with **no selector** gets no automatic endpoints — you supply them yourself with an **EndpointSlice**. This fronts an external or hand-managed backend.\n\n**Gotcha:** the slice attaches via its `kubernetes.io/service-name: <svc>` label, not a reference field.",
+      "prompt": "Create a selector-less ClusterIP Service `ext-svc` (port 80), and an **EndpointSlice** attaching it to a backend at `10.40.0.9:80`.\n\nTarget: `ext-svc` has no selector, and an EndpointSlice labelled `kubernetes.io/service-name=ext-svc` with endpoint address `10.40.0.9`.",
+      "hint": "Service with `ports` and NO `selector`. EndpointSlice (`discovery.k8s.io/v1`) with `metadata.labels.kubernetes.io/service-name: ext-svc`, `addressType: IPv4`, `endpoints: [{addresses: [10.40.0.9]}]`, `ports: [{port: 80}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Service\nmetadata: { name: ext-svc, namespace: svcnet-learn }\nspec:\n  ports: [ { port: 80, targetPort: 80 } ]\n---\napiVersion: discovery.k8s.io/v1\nkind: EndpointSlice\nmetadata:\n  name: ext-svc-1\n  namespace: svcnet-learn\n  labels: { kubernetes.io/service-name: ext-svc }\naddressType: IPv4\nports: [ { name: \"\", port: 80 } ]\nendpoints: [ { addresses: [ \"10.40.0.9\" ] } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "ext-svc selector-less + EndpointSlice (service-name label) with 10.40.0.9",
+          "script": "validate/c7.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

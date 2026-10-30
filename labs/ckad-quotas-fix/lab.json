@@ -1,0 +1,31 @@
+{
+  "id": "ckad-quotas-fix",
+  "name": "Fix a pod rejected by a quota",
+  "type": "learn",
+  "objective": "CKAD › Application Environment, Configuration and Security. Drill EVERY corner of namespace resource governance harder than the exam: compute ResourceQuota, object-count quota, scoped quota (BestEffort), LimitRange defaults, LimitRange min/max bounds, ratio limits, and a no-hint diagnose-and-fix of a pod rejected by a quota. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "quotas"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a pod rejected by the quota",
+      "teach": "When a compute quota exists, a pod whose container omits a tracked dimension is **refused at admission** — so a Deployment's pod never gets created and it stays `0/1`. `kubectl -n <ns> get replicaset` / `describe rs` surfaces the error `must specify limits.cpu` (or similar).\n\n**Gotcha:** fix the **Deployment's pod template** to declare the missing requests/limits — don't touch the quota.",
+      "prompt": "Deployment `shipit` in `ckad-quotas` is stuck at `0/1` — its pods are **rejected by `compute-quota`** because the container doesn't declare all required resources. Diagnose the rejection and fix the Deployment's pod template so a pod is admitted and the Deployment reports an available replica. Don't change the quota; don't delete and rebuild.\n\nTarget: Deployment `shipit` has at least 1 available replica.",
+      "hint": "`kubectl -n ckad-quotas describe rs -l app=shipit` → `failed quota: ... must specify limits.cpu,limits.memory,requests.cpu,requests.memory`. Edit the Deployment to add a full `resources` block (e.g. requests 100m/64Mi, limits 200m/128Mi), then watch `rollout status`.",
+      "solution": "# The container declares no resources, so compute-quota refuses it.\nkubectl -n ckad-quotas patch deployment shipit --type=json -p='[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/resources\",\"value\":{\"requests\":{\"cpu\":\"100m\",\"memory\":\"64Mi\"},\"limits\":{\"cpu\":\"200m\",\"memory\":\"128Mi\"}}}]'\nkubectl -n ckad-quotas rollout status deployment/shipit",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment shipit has >=1 available replica (quota-rejection fixed in the pod template)",
+          "script": "validate/c8.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

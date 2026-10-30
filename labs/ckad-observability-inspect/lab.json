@@ -1,0 +1,47 @@
+{
+  "id": "ckad-observability-inspect",
+  "name": "Inspect a running pod",
+  "type": "learn",
+  "objective": "CKAD › Application Observability and Maintenance (15%). Goal: diagnose and fix failing workloads using kubectl logs, describe, and events — CrashLoopBackOff, ImagePullBackOff, Pending (unschedulable), reading container stdout, and a failing readiness probe.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "observability"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Capture a line from container logs",
+      "teach": "**`kubectl logs <pod>`** returns whatever the container wrote to **stdout/stderr** — run a pod that prints a line, then read it back. Store the captured value in a ConfigMap with **`kubectl create configmap <name> --from-literal=key=value`**.\n\n**Gotcha:** `logs` only shows stdout/stderr — an app that writes to a file *inside* the container shows nothing.",
+      "prompt": "Run a pod `logger` (image `busybox:1.36`) whose command prints the exact line `MARKER=ckad-obs-42` to stdout and then stays running (e.g. `echo MARKER=ckad-obs-42; sleep 3600`). Read it back with `kubectl logs`, then create a ConfigMap `captured` in `ckad-observability` with key `token` set to that value `ckad-obs-42`.\n\nTarget: pod `logger` logged `MARKER=ckad-obs-42` AND ConfigMap `captured` has `token=ckad-obs-42`.",
+      "hint": "`kubectl run logger -n ckad-observability --image=busybox:1.36 --command -- sh -c 'echo MARKER=ckad-obs-42; sleep 3600'`, then `kubectl logs logger -n ckad-observability`, then `kubectl create configmap captured -n ckad-observability --from-literal=token=ckad-obs-42`.",
+      "solution": "kubectl run logger -n ckad-observability --image=busybox:1.36 --command -- sh -c 'echo MARKER=ckad-obs-42; sleep 3600'\nkubectl logs logger -n ckad-observability   # MARKER=ckad-obs-42\nkubectl create configmap captured -n ckad-observability --from-literal=token=ckad-obs-42",
+      "verification": [
+        {
+          "id": "1",
+          "description": "logger printed the marker AND configmap 'captured' holds token=ckad-obs-42",
+          "script": "validate/q4_s1.sh",
+          "weightage": 17
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Debug a running pod with an ephemeral container",
+      "teach": "`kubectl debug` attaches an **ephemeral container** to a *running* pod — a temporary debug container sharing the pod's namespaces, so you can troubleshoot an image that has no shell/tools without restarting it. `--target=<container>` shares that container's process namespace.\n\n**Gotcha:** ephemeral containers can't be removed or restarted — they're for live debugging, not permanent sidecars.",
+      "prompt": "Pod `blackbox` in `ckad-observability` is running but you can't `exec` into its container `app`. Use `kubectl debug` to add an **ephemeral debug container** (image `busybox:1.36`) targeting container `app`.\n\nTarget: pod `blackbox` has an ephemeral container using image `busybox:1.36`.",
+      "hint": "`kubectl debug -it blackbox -n ckad-observability --image=busybox:1.36 --target=app -- sh` — the ephemeral container stays recorded on the pod even after you exit.",
+      "solution": "kubectl debug -it blackbox -n ckad-observability --image=busybox:1.36 --target=app -- sh\n# exit the shell; the ephemeral container remains on the pod\nkubectl get pod blackbox -n ckad-observability -o jsonpath='{.spec.ephemeralContainers[*].image}'",
+      "setup": "setup/q6_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod 'blackbox' has an ephemeral debug container (busybox:1.36)",
+          "script": "validate/q6_s1.sh",
+          "weightage": 16
+        }
+      ]
+    }
+  ]
+}

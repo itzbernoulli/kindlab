@@ -1,0 +1,63 @@
+{
+  "id": "ckad-poddesign-multicontainer",
+  "name": "Multi-container & init patterns",
+  "type": "learn",
+  "objective": "CKAD › Application Design and Build + Observability. Drill EVERY pod-design corner harder than the exam: classic vs native sidecars, init ordering, all three probe types and handlers, lifecycle hooks + graceful shutdown, full securityContext hardening, QoS classes, the Downward API, and a no-hint diagnose-and-fix. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "pod-design"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Classic sidecar sharing an emptyDir",
+      "teach": "A **sidecar** is a second container in the same pod. To share files, declare one `emptyDir` volume and mount it in **both** containers (at the same or different `mountPath`). The `emptyDir` is scratch space that lives and dies with the pod.\n\n**Gotcha:** both containers must reference the **same volume name** — a typo gives each its own empty volume, so nothing is shared.",
+      "prompt": "Create pod `sidecar-pod` in namespace `pod-design` with two containers sharing an `emptyDir`:\n- `writer` (image `busybox:1.36`) running `sh -c 'while true; do date >> /data/out.log; sleep 1; done'`\n- `reader` (image `busybox:1.36`) running `sh -c 'tail -F /data/out.log'`\n\nBoth mount the shared emptyDir at `/data`.",
+      "hint": "Define one `volumes: [{name: data, emptyDir: {}}]` and give BOTH containers `volumeMounts: [{name: data, mountPath: /data}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: sidecar-pod, namespace: pod-design }\nspec:\n  containers:\n  - name: writer\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"while true; do date >> /data/out.log; sleep 1; done\"]\n    volumeMounts: [ { name: data, mountPath: /data } ]\n  - name: reader\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"tail -F /data/out.log\"]\n    volumeMounts: [ { name: data, mountPath: /data } ]\n  volumes: [ { name: data, emptyDir: {} } ]\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "sidecar-pod: writer + reader share one emptyDir at /data",
+          "script": "validate/c1.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Init containers run to completion, in order",
+      "teach": "**initContainers** (under `spec.initContainers`) run **sequentially, to completion** before any app container starts — each must exit 0 before the next begins. They run **top to bottom** in list order and share volumes with the app containers.\n\n**Gotcha:** order is the list order — put `init-a` above `init-b`. A failing init container restarts and the app never starts (`Init:0/2`).",
+      "prompt": "Create pod `init-pod` in `pod-design`:\n- init container `init-a` (`busybox:1.36`) runs `sh -c 'echo a > /work/a'`\n- then init container `init-b` (`busybox:1.36`) runs `sh -c 'echo b > /work/b'`\n- main container `app` (`busybox:1.36`) runs `sh -c 'sleep 3600'`\n\nAll three mount the same `emptyDir` at `/work`, and the init containers must be ordered `init-a` then `init-b`.",
+      "hint": "`spec.initContainers` is an ordered list — put `init-a` before `init-b`. Share one emptyDir named e.g. `work` mounted at `/work` in all three containers.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: init-pod, namespace: pod-design }\nspec:\n  initContainers:\n  - name: init-a\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo a > /work/a\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  - name: init-b\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"echo b > /work/b\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"sleep 3600\"]\n    volumeMounts: [ { name: work, mountPath: /work } ]\n  volumes: [ { name: work, emptyDir: {} } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "init-pod: init-a then init-b (ordered) + app, sharing emptyDir at /work",
+          "script": "validate/c2.sh",
+          "weightage": 10
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Native sidecar (initContainer with restartPolicy: Always)",
+      "teach": "A **native sidecar** (Kubernetes 1.29+) is an entry in `spec.initContainers` with `restartPolicy: Always` set **on that container**. That one field makes it start before the app and stay running alongside it, instead of running once and exiting.\n\n**Gotcha:** `restartPolicy: Always` goes on the init container itself, not on the pod spec.",
+      "prompt": "Create pod `log-pod` in `pod-design` with a **native sidecar**:\n- initContainer `logger` (`busybox:1.36`) with `restartPolicy: Always`, running `sh -c 'tail -F /var/log/app.log'`\n- main container `app` (`busybox:1.36`) running `sh -c 'while true; do echo hi >> /var/log/app.log; sleep 2; done'`\n\nShare an `emptyDir` at `/var/log` in both.",
+      "hint": "Put `logger` under `spec.initContainers` with `restartPolicy: Always` set ON that container. Share an emptyDir named e.g. `logs` at `/var/log`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: log-pod, namespace: pod-design }\nspec:\n  initContainers:\n  - name: logger\n    image: busybox:1.36\n    restartPolicy: Always\n    command: [\"sh\",\"-c\",\"tail -F /var/log/app.log\"]\n    volumeMounts: [ { name: logs, mountPath: /var/log } ]\n  containers:\n  - name: app\n    image: busybox:1.36\n    command: [\"sh\",\"-c\",\"while true; do echo hi >> /var/log/app.log; sleep 2; done\"]\n    volumeMounts: [ { name: logs, mountPath: /var/log } ]\n  volumes: [ { name: logs, emptyDir: {} } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "log-pod: native sidecar 'logger' (initContainer restartPolicy:Always) + app sharing /var/log",
+          "script": "validate/c3.sh",
+          "weightage": 10
+        }
+      ]
+    }
+  ]
+}

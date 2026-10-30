@@ -1,0 +1,63 @@
+{
+  "id": "ckad-deploy-rollout",
+  "name": "Roll out and roll back a Deployment",
+  "type": "learn",
+  "objective": "CKAD › Application Deployment. Drill EVERY way to change a Deployment that already exists — WITHOUT deleting it: scale, rolling image update, rollback, set resources, inject config, change strategy, targeted JSON patch, and rollout restart. Graded exactly, per requirement.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "workloads"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Scale in place",
+      "teach": "`kubectl scale deployment/<name> --replicas=N` changes only `.spec.replicas` — it doesn't touch the pod template, so no rollout happens. Never delete+recreate just to change replica count.\n\n**Gotcha:** an **HPA** targeting the Deployment overrides a manual `scale` within seconds.",
+      "prompt": "Deployment `frontend` in `deploy-learn` exists with 2 replicas. Scale it **in place** to **4**.\n\nTarget: `frontend` has 4 ready replicas (and you did not delete it).",
+      "hint": "`kubectl -n deploy-learn scale deployment/frontend --replicas=4`.",
+      "solution": "kubectl -n deploy-learn scale deployment/frontend --replicas=4\nkubectl -n deploy-learn get deploy frontend",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "frontend scaled to 4 ready replicas (in place)",
+          "script": "validate/c1.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Rolling image update",
+      "teach": "`kubectl set image deployment/<name> <container>=<newimg>` changes the pod template, triggering a **rolling update** (new ReplicaSet scales up while the old scales down). Do it in place; watch with `kubectl rollout status`.\n\n**Gotcha:** the container name isn't always the deployment name — check it first with `kubectl get deploy <name> -o jsonpath='{.spec.template.spec.containers[0].name}'`.",
+      "prompt": "Deployment `api` in `deploy-learn` runs `nginx:1.25` (container named `api`). Perform a rolling update to `nginx:1.26` in place.\n\nTarget: the update to `nginx:1.26` is recorded in `api`'s ReplicaSet history (this evidence survives the rollback in the next step).",
+      "hint": "`kubectl -n deploy-learn set image deployment/api api=nginx:1.26`, then `kubectl -n deploy-learn rollout status deployment/api`.",
+      "solution": "kubectl -n deploy-learn set image deployment/api api=nginx:1.26\nkubectl -n deploy-learn rollout status deployment/api",
+      "verification": [
+        {
+          "id": "1",
+          "description": "api rolling-updated to nginx:1.26 (recorded in history)",
+          "script": "validate/c2.sh",
+          "weightage": 13
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Roll back a bad release",
+      "teach": "`kubectl rollout undo deployment/<name>` reverts the pod template to the previous revision in place (use `--to-revision=N` for a specific one). List revisions with `kubectl rollout history deployment/<name>`.\n\n**Gotcha:** undo restores the **whole** pod template of that revision (image, env, resources…), not just the image — so roll back *before* layering on other template edits.",
+      "prompt": "`nginx:1.26` misbehaves. Roll `api` back so its image returns to `nginx:1.25`.\n\nTarget: `api`'s current image is `nginx:1.25` again and the rollout is complete (3/3).",
+      "hint": "`kubectl -n deploy-learn rollout undo deployment/api`, then `rollout status`.",
+      "solution": "kubectl -n deploy-learn rollout undo deployment/api\nkubectl -n deploy-learn rollout status deployment/api",
+      "verification": [
+        {
+          "id": "1",
+          "description": "api rolled back to nginx:1.25 (rollout complete)",
+          "script": "validate/c3.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

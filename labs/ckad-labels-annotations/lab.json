@@ -1,0 +1,46 @@
+{
+  "id": "ckad-labels-annotations",
+  "name": "Selectors in specs & annotations",
+  "type": "learn",
+  "objective": "CKAD core: label and annotate objects, and target them with equality + set-based selectors. Add/overwrite/remove labels, bulk-label via a selector, set-based matching, matchExpressions selectors, annotations, and a selector-mismatch diagnose-fix. Graded exactly.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "labels"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "A selector with matchExpressions",
+      "teach": "A controller/Service selector can use `matchExpressions` for set-based rules: `{key: app, operator: In, values: [exp]}` (operators `In`/`NotIn`/`Exists`/`DoesNotExist`), optionally alongside `matchLabels`.\n\n**Gotcha:** the pod template's labels must satisfy the selector, or the Deployment is rejected.",
+      "prompt": "In `labels-learn`, create a Deployment `exp` (image `nginx:1.25`, 1 replica, pod label `app=exp`) whose **selector uses matchExpressions**: key `app`, operator `In`, values `[exp]`.\n\nTarget: Deployment `exp` selector has a matchExpressions rule `app In [exp]`, and its pods are labelled `app=exp`.",
+      "hint": "`spec.selector.matchExpressions: [{key: app, operator: In, values: [exp]}]`; pod template `labels: {app: exp}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: exp, namespace: labels-learn }\nspec:\n  replicas: 1\n  selector:\n    matchExpressions: [ { key: app, operator: In, values: [ exp ] } ]\n  template:\n    metadata: { labels: { app: exp } }\n    spec:\n      containers: [ { name: web, image: nginx:1.25 } ]\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment exp selector matchExpressions app In [exp]",
+          "script": "validate/c5.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Annotate an object",
+      "teach": "`kubectl annotate <obj> key=value` attaches non-identifying metadata. Unlike labels, **annotations can't be used in selectors** — they're for tools, descriptions, and controller hints.\n\n**Gotcha:** labels are selectable + size-limited; annotations are not selectable but hold larger/arbitrary data.",
+      "prompt": "In `labels-learn`, add the annotation `owner=team-a` to pod `frontend`.\n\nTarget: pod `frontend` has annotation `owner=team-a`.",
+      "hint": "`kubectl -n labels-learn annotate pod frontend owner=team-a`.",
+      "solution": "kubectl -n labels-learn annotate pod frontend owner=team-a\nkubectl -n labels-learn get pod frontend -o jsonpath='{.metadata.annotations.owner}'",
+      "verification": [
+        {
+          "id": "1",
+          "description": "pod frontend has annotation owner=team-a",
+          "script": "validate/c6.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

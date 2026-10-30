@@ -1,0 +1,32 @@
+{
+  "id": "ckad-svc-fix",
+  "name": "Fix a Service with no endpoints",
+  "type": "learn",
+  "objective": "CKAD › Services & Networking. Drill every Service shape and the Ingress/endpoints surface: ClusterIP with named targetPort, NodePort on a pinned port, headless, ExternalName, sessionAffinity, Ingress (pathType/ingressClassName/TLS), a selector-less Service + manual EndpointSlice, and a no-hint 'no endpoints' diagnose-fix. Graded exactly.",
+  "certs": [
+    "CKAD"
+  ],
+  "topics": [
+    "services",
+    "networking"
+  ],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a Service with no endpoints",
+      "teach": "A Service with **no endpoints** but healthy pods almost always means a **selector mismatch**. Compare the Service's `spec.selector` to the actual pod labels, then patch it in place.\n\n**Gotcha:** fix the selector; don't delete and recreate the Service.",
+      "prompt": "Service `api-svc` in `svcnet-learn` has **no endpoints** even though Deployment `api` (label `app=api`) is running. Diagnose and fix it so the Service has endpoints. Don't delete it.\n\nTarget: `api-svc` has at least one endpoint address.",
+      "hint": "`kubectl -n svcnet-learn get endpoints api-svc` (empty) then `kubectl -n svcnet-learn get svc api-svc -o jsonpath='{.spec.selector}'` — the selector is wrong. Patch it to `app=api`: `kubectl -n svcnet-learn patch svc api-svc -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'`.",
+      "solution": "kubectl -n svcnet-learn patch svc api-svc -p '{\"spec\":{\"selector\":{\"app\":\"api\"}}}'\nkubectl -n svcnet-learn get endpoints api-svc",
+      "verification": [
+        {
+          "id": "1",
+          "description": "api-svc now has endpoints (selector fixed to app=api)",
+          "script": "validate/c8.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ],
+  "troubleshooting": true
+}

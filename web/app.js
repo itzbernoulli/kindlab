@@ -29,10 +29,14 @@ document.addEventListener('click', (e) => {
 function workbench() {
   const kc = clusterInfo.kubeconfig || 'kindlab/.state/kubeconfig';
   const cp = clusterInfo.controlPlane || 'kindlab-control-plane';
+  const workers = (clusterInfo.nodes || []).filter(n => n !== cp);
+  const w1 = workers[0] || 'kindlab-worker';
+  const w2 = workers[1] || 'kindlab-worker2';
   return `<div class="workbench">
     <div class="wb-title">⌨ Work in your own terminal — KindLab checks the cluster, it doesn't host a shell.</div>
-    <div class="wb-row">1 · connect it once: <code>export KUBECONFIG=${esc(kc)}</code></div>
-    <div class="wb-row">2 · node tasks: <code>docker exec -it ${esc(cp)} bash</code></div>
+    <div class="wb-row">1 · connect once: <code>export KUBECONFIG=${esc(kc)}</code></div>
+    <div class="wb-row">2 · node names (so <code>$CP</code>/<code>$W1</code>/<code>$W2</code> in tasks work): <code>export CP=${esc(cp)} W1=${esc(w1)} W2=${esc(w2)}</code></div>
+    <div class="wb-row">3 · node shell: <code>docker exec -it ${esc(cp)} bash</code> (or <code>$W1</code>/<code>$W2</code>)</div>
     <div class="wb-row muted">Flow: <b>Start</b> seeds the cluster → do the task in your terminal → <b>Check / Grade</b> here.</div>
   </div>`;
 }

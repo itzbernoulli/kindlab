@@ -6,9 +6,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;
 
 let current = null;
 let clusterInfo = {};
-// Browse mode: 'topic' (default) or 'cert'
-let browseMode = 'cert';
-// Last fetched labs list (for re-rendering on toggle without refetch)
+// Last fetched labs list (cached so re-renders don't refetch)
 let cachedLabs = null;
 
 // Click-to-copy: like the exam, clicking an inline `code` token (name,
@@ -39,6 +37,38 @@ function workbench() {
     <div class="wb-row">3 · node shell: <code>docker exec -it ${esc(cp)} bash</code> (or <code>$W1</code>/<code>$W2</code>)</div>
     <div class="wb-row muted">Flow: <b>Start</b> seeds the cluster → do the task in your terminal → <b>Check / Grade</b> here.</div>
   </div>`;
+}
+
+// Node toolbox: a collapsed reference for node-level work — the paths and the
+// tools (crictl, journalctl, systemctl, etcdctl) you reach for when kubectl
+// isn't enough (apiserver down, kubelet won't start). Shown on every lab.
+function nodeToolbox() {
+  return `<details class="toolbox">
+    <summary>🧰 Node toolbox — when <code>kubectl</code> isn't enough, go to the node (crictl · journalctl · systemctl · paths)</summary>
+    <div class="tb-body">
+      <div class="tb-sec"><div class="tb-h">Get on a node</div>
+        <div class="tb-row"><code>docker exec -it $CP bash</code> — exam equivalent: <code>ssh &lt;node&gt;</code> then <code>sudo -i</code>. Nodes: <code>$CP</code> control-plane, <code>$W1</code>/<code>$W2</code> workers.</div>
+        <div class="tb-row muted">No vi/nano on kind nodes — edit with <code>sed -i</code> (or <code>apt-get update &amp;&amp; apt-get install -y vim</code>).</div>
+      </div>
+      <div class="tb-sec"><div class="tb-h">Key paths (on the node)</div>
+        <div class="tb-row">static-pod manifests <code>/etc/kubernetes/manifests/</code> · kubeconfigs <code>/etc/kubernetes/*.conf</code> · certs/PKI <code>/etc/kubernetes/pki/</code></div>
+        <div class="tb-row">etcd data <code>/var/lib/etcd</code> · kubelet config <code>/var/lib/kubelet/config.yaml</code> · kubelet drop-ins <code>/etc/systemd/system/kubelet.service.d/</code></div>
+        <div class="tb-row">CNI config <code>/etc/cni/net.d/</code> · CNI plugins <code>/opt/cni/bin</code> · pod logs <code>/var/log/pods</code> · containerd <code>/etc/containerd/config.toml</code></div>
+      </div>
+      <div class="tb-sec"><div class="tb-h">crictl — containers when the API / kubectl is down</div>
+        <div class="tb-row"><code>crictl ps -a</code> every container (incl. exited) · <code>crictl logs &lt;id&gt;</code> · <code>crictl pods</code> · <code>crictl inspect &lt;id&gt;</code></div>
+        <div class="tb-row muted">Endpoint is preconfigured on kind; otherwise <code>crictl --runtime-endpoint unix:///run/containerd/containerd.sock …</code></div>
+      </div>
+      <div class="tb-sec"><div class="tb-h">kubelet — systemd &amp; logs</div>
+        <div class="tb-row"><code>systemctl status kubelet</code> is it running? · <code>journalctl -u kubelet -e --no-pager</code> why it won't start</div>
+        <div class="tb-row">after editing its config or unit: <code>systemctl daemon-reload &amp;&amp; systemctl restart kubelet</code></div>
+      </div>
+      <div class="tb-sec"><div class="tb-h">etcd &amp; certs</div>
+        <div class="tb-row"><code>ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/apiserver-etcd-client.crt --key=/etc/kubernetes/pki/apiserver-etcd-client.key member list</code></div>
+        <div class="tb-row"><code>kubeadm certs check-expiration</code> · <code>openssl x509 -in &lt;crt&gt; -noout -text -dates</code> · <code>kubeadm token list</code> · <code>kubeadm upgrade plan</code></div>
+      </div>
+    </div>
+  </details>`;
 }
 
 // ---- exam countdown ----
@@ -114,42 +144,41 @@ function renderLabList(labs) {
     return card;
   };
 
-  // Collapsed-section state persists across refreshes, keyed per browse mode + section.
-  const collapseKey = (id) => `kindlab.collapsed.${browseMode}.${id}`;
+  // Collapsed-section state persists across refreshes, keyed per section id.
+  const collapseKey = (id) => `kindlab.collapsed.${id}`;
   const isCollapsed = (id) => localStorage.getItem(collapseKey(id)) === '1';
 
-  // Render one collapsible section: a clickable header that folds/unfolds its cards.
-  const renderShelf = (id, headerCls, headerText, shelfLabs) => {
+  // Render one collapsible header into `parent`; returns its (empty) body so the
+  // caller can fill it with cards or nested sub-sections.
+  const makeCollapsible = (parent, id, headerCls, headerText, count) => {
     const collapsed = isCollapsed(id);
     const h = document.createElement('div');
     h.className = 'lab-section ' + headerCls + (collapsed ? ' collapsed' : '');
-    h.innerHTML = `<span class="caret">▾</span><span class="sec-label">${esc(headerText)}</span><span class="sec-count">${shelfLabs.length}</span>`;
-    list.appendChild(h);
+    h.innerHTML = `<span class="caret">▾</span><span class="sec-label">${esc(headerText)}</span><span class="sec-count">${count}</span>`;
+    parent.appendChild(h);
     const body = document.createElement('div');
     body.className = 'lab-section-body';
     if (collapsed) body.style.display = 'none';
-    const learn = shelfLabs.filter(l => l.type === 'learn');
-    const exam = shelfLabs.filter(l => l.type !== 'learn');
-    [...learn, ...exam].forEach(l => body.appendChild(makeCard(l)));
-    list.appendChild(body);
+    parent.appendChild(body);
     h.onclick = () => {
       const nowCollapsed = !h.classList.contains('collapsed');
       h.classList.toggle('collapsed', nowCollapsed);
       body.style.display = nowCollapsed ? 'none' : '';
       localStorage.setItem(collapseKey(id), nowCollapsed ? '1' : '0');
     };
+    return body;
   };
 
-  if (browseMode === 'cert') {
-    // Cert view: uses byCert from web/grouping.js (mirrors lib/grouping.js).
-    // Dual-cert labs appear under each of their certs.
-    for (const shelf of window.byCert(labs)) {
-      renderShelf('cert:' + shelf.cert, 'cert-' + shelf.cert, shelf.cert, shelf.labs);
-    }
-  } else {
-    // Topic view (default): uses byTopic from web/grouping.js (mirrors lib/grouping.js).
-    for (const shelf of window.byTopic(labs)) {
-      renderShelf('topic:' + shelf.key, 'topic-shelf topic-' + shelf.key, shelf.label || shelf.key, shelf.labs);
+  // Single view: each cert is a top-level section; inside it, labs are grouped
+  // by topic in curriculum (teaching) order. byCertTopic mirrors lib/grouping.js.
+  // Dual-cert labs appear under each of their certs.
+  for (const { cert, groups } of window.byCertTopic(labs)) {
+    const total = groups.reduce((n, g) => n + g.labs.length, 0);
+    const certBody = makeCollapsible(list, 'cert:' + cert, 'cert-head cert-' + cert, cert, total);
+    for (const g of groups) {
+      const topicBody = makeCollapsible(certBody, 'cert:' + cert + ':' + g.key, 'topic-sub topic-' + g.key, g.label || g.key, g.labs.length);
+      // Preserve curriculum order — "-fix" labs are intentionally placed last.
+      g.labs.forEach(l => topicBody.appendChild(makeCard(l)));
     }
   }
 
@@ -173,32 +202,6 @@ async function loadLabs() {
   renderLabList(labs);
 }
 
-// Wire up the browse toggle buttons (topic/cert).
-// app.js is loaded at the bottom of <body>, so the DOM may already be parsed
-// by the time this runs (DOMContentLoaded would have already fired). We use a
-// readyState check so the wiring always happens regardless of load timing.
-function wireToggleButtons() {
-  const togTopic = document.getElementById('togTopic');
-  const togCert = document.getElementById('togCert');
-  if (togTopic && togCert) {
-    togTopic.onclick = () => {
-      browseMode = 'topic';
-      togTopic.classList.add('on'); togCert.classList.remove('on');
-      if (cachedLabs) renderLabList(cachedLabs);
-    };
-    togCert.onclick = () => {
-      browseMode = 'cert';
-      togCert.classList.add('on'); togTopic.classList.remove('on');
-      if (cachedLabs) renderLabList(cachedLabs);
-    };
-  }
-}
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', wireToggleButtons);
-} else {
-  wireToggleButtons();
-}
-
 async function openLab(id) {
   current = id;
   const lab = await api('/api/lab/' + id);
@@ -214,6 +217,7 @@ async function renderExam(lab) {
     <div class="muted">${esc(lab.category)} · ${lab.questions.length} tasks · ${lab.questions.reduce((s,q)=>s+(q.verification||[]).reduce((a,v)=>a+Number(v.weightage),0),0)} marks</div>
     ${lab.objective ? `<div class="objective cert-${esc(lab.category)}"><span class="obj-eyebrow">Objective</span>${esc(lab.objective)}</div>` : ''}
     ${workbench()}
+    ${nodeToolbox()}
     <div class="toolbar">
       <button class="btn-start" id="bStart">▶ Start / Reset (practice)</button>
       <button class="btn-exam" id="bExam">⏱ Start timed exam</button>
@@ -309,6 +313,7 @@ async function renderLearn(lab) {
     ${lab.objective ? `<div class="objective cert-${esc(lab.category)}"><span class="obj-eyebrow">Objective</span>${esc(lab.objective)}</div>` : ''}
     ${lab.requiresHost ? `<div class="host-warn">⚠ <b>Requires a Linux host</b> — this tool needs BTF/AppArmor, which your Docker Desktop kernel lacks. Learn it here, then run it on your real cluster (or run KindLab's kind under Colima/Linux).</div>` : ''}
     ${workbench()}
+    ${nodeToolbox()}
     <div class="toolbar">
       <button class="btn-start" id="bStart">▶ Start / Reset lesson</button>
       <button class="btn-grade" id="bCheck">✓ Check progress</button>
@@ -447,6 +452,7 @@ function renderActiveMock(m) {
     <h2>🎯 ${esc(m.cert)} Mock <span class="timed-badge">TIMED</span></h2>
     <div class="muted">${m.tasks.length} tasks · ${m.minutes} min · pass ≥ ${m.passBar}%</div>
     ${workbench()}
+    ${nodeToolbox()}
     <div class="toolbar"><button class="btn-grade" id="mockSubmit">✓ Submit exam</button><button class="btn-answers" id="mockAbort">Abort</button></div>
     <div id="mockTasks"></div>`;
   const t = $('#mockTasks');

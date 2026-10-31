@@ -58,23 +58,6 @@ main { display: flex; gap: 22px; padding: 22px; align-items: flex-start; max-wid
 .sidebar-col { width: 304px; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
 .labs { display: flex; flex-direction: column; gap: 7px; }
 
-/* ---------- browse toggle (topic / cert) ---------- */
-.browse-toggle {
-  display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
-  background: var(--surface); align-self: flex-start; width: 100%;
-}
-.tog-btn {
-  flex: 1; border: none; border-radius: 0; background: transparent;
-  color: var(--muted); padding: 8px 14px; font-size: 12.5px; font-weight: 600;
-  letter-spacing: .02em; cursor: pointer; transition: background .12s, color .12s;
-}
-.tog-btn:hover { color: var(--ink); filter: none; }
-.tog-btn.on { background: var(--k8s); color: #fff; }
-
-/* ---------- topic shelf headers ---------- */
-.lab-section.topic-shelf { color: var(--muted); }
-.lab-section.topic-shelf::before { background: var(--muted); }
-
 /* ---------- sidebar sections + cards ---------- */
 .lab-section {
   display: flex; align-items: center; gap: 8px;
@@ -100,6 +83,16 @@ main { display: flex; gap: 22px; padding: 22px; align-items: flex-start; max-wid
   color: inherit; border-radius: 9px; padding: 1px 7px; min-width: 16px; text-align: center;
 }
 .lab-section-body { display: flex; flex-direction: column; gap: 6px; }
+
+/* Nested layout: cert = top-level header, topic = sub-header (teaching order within a cert). */
+.lab-section.topic-sub {
+  font-size: 10px; letter-spacing: .07em; color: var(--muted);
+  margin: 12px 2px 5px 2px;
+}
+.lab-section.topic-sub::before { width: 7px; height: 7px; opacity: .7; }
+.lab-section.topic-sub .sec-count { font-weight: 600; }
+/* indent the topic sub-sections (and their cards) beneath their cert */
+.labs > .lab-section-body { margin-left: 9px; padding-left: 9px; border-left: 1px solid var(--line); }
 
 .lab-card {
   background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--muted);
@@ -141,6 +134,21 @@ main { display: flex; gap: 22px; padding: 22px; align-items: flex-start; max-wid
 .workbench .wb-row.muted { color: #93a0bb; margin-top: 3px; }
 .workbench code { font-family: var(--font-mono); font-size: 12.5px; background: #222a42; color: #a9c5ff; padding: 3px 9px; border-radius: 6px; }
 .workbench b { color: #fff; font-weight: 600; }
+
+/* ---------- node toolbox (collapsible node-level reference) ---------- */
+.toolbox { background: #11182b; color: #cdd6ea; border: 1px solid #202a44; border-radius: 12px; margin: 8px 0 4px; overflow: hidden; }
+.toolbox > summary { cursor: pointer; list-style: none; padding: 12px 18px; font-family: var(--font-display); font-weight: 600; font-size: 13px; color: #e8edf8; user-select: none; }
+.toolbox > summary::-webkit-details-marker { display: none; }
+.toolbox > summary::before { content: "▸"; display: inline-block; margin-right: 8px; opacity: .7; transition: transform .12s ease; }
+.toolbox[open] > summary::before { transform: rotate(90deg); }
+.toolbox > summary code { font-family: var(--font-mono); font-size: 12px; background: #222a42; color: #a9c5ff; padding: 1px 6px; border-radius: 5px; }
+.toolbox .tb-body { padding: 2px 18px 16px; }
+.toolbox .tb-sec { margin-top: 13px; }
+.toolbox .tb-h { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #8fa0c4; margin-bottom: 6px; }
+.toolbox .tb-row { font-size: 12.5px; line-height: 1.55; margin-bottom: 5px; }
+.toolbox .tb-row.muted { color: #8b99b8; }
+.toolbox .tb-row code { font-family: var(--font-mono); font-size: 12px; background: #1c2439; color: #a9c5ff; padding: 2px 7px; border-radius: 6px; word-break: break-word; }
+
 .ready-note { margin-top: 14px; padding: 11px 15px; background: var(--ok-soft); border-left: 3px solid var(--ok); border-radius: 8px; color: #14703d; font-weight: 500; }
 
 /* ---------- timed mock ---------- */

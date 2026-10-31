@@ -13,10 +13,10 @@
     {
       "id": "1",
       "title": "Diagnose & fix: a node with no CNI config",
-      "teach": "When a node's CNI config under `/etc/cni/net.d/` is gone, the kubelet can't attach new pods there and they hang with no IP. The kindnet DaemonSet **rewrites that config every time its pod starts**, so bouncing kindnet on the bad node restores it.\n\n**Gotcha:** target just the broken node with `--field-selector spec.nodeName=$W2` — don't delete the whole DaemonSet.",
+      "teach": "When a node's CNI config under `/etc/cni/net.d/` is gone, the kubelet can't attach new pods there and they hang with no IP — and the kubelet says exactly that: `docker exec $W2 journalctl -u kubelet -e | grep -i cni` shows `cni config uninitialized` / `NetworkPluginNotReady`. The kindnet DaemonSet **rewrites that config every time its pod starts**, so bouncing kindnet on the bad node restores it.\n\n**Gotcha:** target just the broken node with `--field-selector spec.nodeName=$W2` — don't delete the whole DaemonSet.",
       "prompt": "Pod `netbroken` (pinned to node `$W2`) is stuck with no IP — new pods on `$W2` aren't getting networking. Diagnose the fault on `$W2` and repair it so `netbroken` gets an IP. Don't delete `netbroken`; fix the node.\n\nTarget: `netbroken` has a `.status.podIP`.",
-      "hint": "Compare `$W2` to a healthy node: `docker exec $W2 ls /etc/cni/net.d` — the kindnet conflist is missing. Make kindnet rewrite it by restarting its pod on that node: `kubectl -n kube-system delete pod -l app=kindnet --field-selector spec.nodeName=$W2`. Wait ~15s.",
-      "solution": "docker exec $W2 ls /etc/cni/net.d   # empty: the CNI config is gone\nkubectl -n kube-system delete pod -l app=kindnet --field-selector spec.nodeName=$W2\n# the new kindnet pod rewrites /etc/cni/net.d/10-kindnet.conflist; netbroken then gets an IP\nkubectl get pod netbroken -n cni-learn -o wide",
+      "hint": "Compare `$W2` to a healthy node: `docker exec $W2 ls /etc/cni/net.d` — the kindnet conflist is missing (and `docker exec $W2 journalctl -u kubelet -e | grep -i cni` shows `cni config uninitialized`). Make kindnet rewrite it by restarting its pod on that node: `kubectl -n kube-system delete pod -l app=kindnet --field-selector spec.nodeName=$W2`. Wait ~15s.",
+      "solution": "docker exec $W2 ls /etc/cni/net.d   # empty: the CNI config is gone\ndocker exec $W2 journalctl -u kubelet -e | grep -i cni | tail   # 'cni config uninitialized'\nkubectl -n kube-system delete pod -l app=kindnet --field-selector spec.nodeName=$W2\n# the new kindnet pod rewrites /etc/cni/net.d/10-kindnet.conflist; netbroken then gets an IP\nkubectl get pod netbroken -n cni-learn -o wide",
       "setup": "setup/q3_setup.sh",
       "verification": [
         {

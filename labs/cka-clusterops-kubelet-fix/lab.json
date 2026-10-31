@@ -1,0 +1,28 @@
+{
+  "id": "cka-clusterops-kubelet-fix",
+  "name": "Fix a kubelet that won't start",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture, Maintenance & Troubleshooting. A worker's kubelet won't start, so the node is NotReady and kubectl can't help you on the node itself. Diagnose it the way the exam expects — systemctl status kubelet, journalctl -u kubelet, systemctl cat kubelet to find the offending drop-in — then fix it and bring the node back Ready. Graded on persistent node state via docker exec and kubectl -o json.",
+  "certs": ["CKA"],
+  "topics": ["cluster-ops"],
+  "troubleshooting": true,
+  "questions": [
+    {
+      "id": "1",
+      "title": "Diagnose & fix: a worker kubelet that won't start",
+      "teach": "The **kubelet** is the node agent: it runs as a systemd service (`kubelet.service`), reads its config from `/var/lib/kubelet/config.yaml`, and takes extra settings from drop-ins under `/etc/systemd/system/kubelet.service.d/`. When it won't start, that node goes **NotReady** — and because the break is *on the node*, `kubectl` can't tell you why. You diagnose from the node with **systemd + journald**.\n\n**Gotcha:** `systemctl status kubelet` shows it failed; `systemctl cat kubelet` prints the unit **plus every drop-in** so you can spot a bad one; `journalctl -u kubelet -e --no-pager` shows the real error. After changing a **unit or drop-in** you must `systemctl daemon-reload` *before* `systemctl restart kubelet` (a `config.yaml` edit needs only the restart).",
+      "prompt": "Setup installed a broken systemd **drop-in** for the kubelet on `$W2`, so the kubelet won't start and `$W2` is `NotReady`. Diagnose it on the node and bring the kubelet back.\n\nTarget: node `$W2` is `Ready` again and the broken drop-in under `/etc/systemd/system/kubelet.service.d/` is gone.",
+      "hint": "Confirm the damage: `kubectl get nodes` shows `$W2` NotReady. Shell in: `docker exec -it $W2 bash`. `systemctl status kubelet` → failed (a failing `ExecStartPre`). `systemctl cat kubelet` reveals the offending file under `/etc/systemd/system/kubelet.service.d/` (name has `lab-break`). Remove it, then `systemctl daemon-reload && systemctl restart kubelet`; `journalctl -u kubelet -e --no-pager | tail` should now show a clean start. Give the node ~30s to report Ready.",
+      "solution": "# confirm from base: W2 is NotReady\nkubectl get nodes\n\n# shell onto the broken worker (exam equivalent: ssh $W2)\ndocker exec -it $W2 bash\n\n# why won't kubelet start?\nsystemctl status kubelet                 # failed: ExecStartPre=/bin/false exited 1\nsystemctl cat kubelet                    # unit + drop-ins; spot 99-lab-break.conf\njournalctl -u kubelet -e --no-pager | tail\n\n# remove the bad drop-in and reload systemd, then restart kubelet\nrm -f /etc/systemd/system/kubelet.service.d/99-lab-break.conf\nsystemctl daemon-reload\nsystemctl restart kubelet\nsystemctl status kubelet                 # active (running)\nexit\n\n# back on base: W2 returns Ready in ~30s\nkubectl get node $W2 -w",
+      "setup": "setup/q1_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Broken kubelet drop-in removed on $W2 and the node is Ready again",
+          "script": "validate/q1_s1.sh",
+          "weightage": 13
+        }
+      ]
+    }
+  ]
+}

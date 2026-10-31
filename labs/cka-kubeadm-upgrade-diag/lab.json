@@ -32,10 +32,10 @@
     {
       "id": "2",
       "title": "Read a kubeadm upgrade plan",
-      "teach": "`kubeadm upgrade plan` is a READ-ONLY report: it lists which versions you can upgrade to and the components it would bump. You run it before `kubeadm upgrade apply v1.X.Y`. The plan reasons about the running server (apiserver) version, which `kubectl version` reports.\n\n**Gotcha:** parse the version with `kubectl version -o json` — the old `--short` flag was removed.",
+      "teach": "`kubeadm upgrade plan` is a READ-ONLY report: it lists which versions you can upgrade to and the components it would bump. You run it before `kubeadm upgrade apply v1.X.Y`. The plan reasons about the running server (apiserver) version, which `kubectl version` reports.\n\n**Gotcha:** the old `kubectl version --short` flag was removed — read the server line from plain `kubectl version`, or pull just the string with `kubectl version -o json | jq -r .serverVersion.gitVersion`.",
       "prompt": "On $CP, run `kubeadm upgrade plan` to read it. To prove the control plane is healthy and reporting a version, write the server (apiserver) version string to `/tmp/serverversion.txt` on $CP.\n\nTarget: `/tmp/serverversion.txt` on $CP contains a `v<major>.<minor>.<patch>` Kubernetes version.",
-      "hint": "`docker exec \"$CP\" kubeadm upgrade plan`. Then capture the server version onto the node: `docker exec \"$CP\" sh -c 'kubectl --kubeconfig /etc/kubernetes/admin.conf version -o json | grep -oE \"v[0-9]+\\.[0-9]+\\.[0-9]+\" | head -1 > /tmp/serverversion.txt'`.",
-      "solution": "docker exec \"$CP\" kubeadm upgrade plan\ndocker exec \"$CP\" sh -c 'kubectl --kubeconfig /etc/kubernetes/admin.conf version -o json | grep -oE \"v[0-9]+\\.[0-9]+\\.[0-9]+\" | head -1 > /tmp/serverversion.txt'\ndocker exec \"$CP\" cat /tmp/serverversion.txt",
+      "hint": "Read it the easy way from your terminal: `kubectl version` and look at the **Server Version** line. To capture just that string and write the file on $CP: `V=$(kubectl version -o json | jq -r .serverVersion.gitVersion)` then `docker exec \"$CP\" sh -c \"echo $V > /tmp/serverversion.txt\"`.",
+      "solution": "# read the plan (exam: this is what you run before `kubeadm upgrade apply`)\ndocker exec \"$CP\" kubeadm upgrade plan\n\n# read the server version — plain and simple\nkubectl version                       # look at the \"Server Version: v1.X.Y\" line\n\n# capture just that string into the file on $CP\nV=$(kubectl version -o json | jq -r .serverVersion.gitVersion)\ndocker exec \"$CP\" sh -c \"echo $V > /tmp/serverversion.txt\"\ndocker exec \"$CP\" cat /tmp/serverversion.txt",
       "verification": [
         {
           "id": "1",

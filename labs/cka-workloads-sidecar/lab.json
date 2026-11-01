@@ -1,0 +1,44 @@
+{
+  "id": "cka-workloads-sidecar",
+  "name": "Native sidecar containers",
+  "type": "learn",
+  "objective": "CKA › Workloads & Scheduling. Native sidecar containers (GA 1.29): an initContainer with restartPolicy: Always that starts before the app, runs alongside it, and is torn down last — so it works correctly in Jobs (unlike a plain extra container that never exits). Build one, then fix a Job that a non-native sidecar keeps from completing.",
+  "certs": ["CKA"],
+  "topics": ["workloads"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Add a native sidecar to a Deployment",
+      "teach": "A **native sidecar** is an `initContainer` with `restartPolicy: Always`. It starts **before** the app containers, keeps running alongside them, and the kubelet restarts it if it dies. Unlike a plain extra container in `containers:`, a native sidecar has ordered startup and is guaranteed to terminate **after** the app containers.\n\n**Gotcha:** the sidecar goes under `initContainers:` (not `containers:`) and MUST have `restartPolicy: Always` — without that field it's an ordinary init container that must exit before the app starts.",
+      "prompt": "In namespace `sidecar-learn`, create a Deployment `web` (1 replica) whose app container is `app` (`nginx:1.25`) and that has a **native sidecar** init container `log-agent` (`busybox:1.36`, command `sh -c 'while true; do echo tick; sleep 10; done'`) with `restartPolicy: Always`.\n\nTarget: Deployment `web` has 1 ready replica; its pod has an `initContainers` entry `log-agent` with `restartPolicy: Always`, and the `app` container running.",
+      "hint": "In the pod template put `initContainers: [{name: log-agent, image: busybox:1.36, restartPolicy: Always, command: [...]}]` alongside `containers: [{name: app, image: nginx:1.25}]`. The `restartPolicy: Always` on the initContainer is what makes it a sidecar.",
+      "solution": "kubectl create namespace sidecar-learn 2>/dev/null\ncat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: sidecar-learn\nspec:\n  replicas: 1\n  selector: { matchLabels: { app: web } }\n  template:\n    metadata: { labels: { app: web } }\n    spec:\n      initContainers:\n      - name: log-agent\n        image: busybox:1.36\n        restartPolicy: Always\n        command: [\"sh\",\"-c\",\"while true; do echo tick; sleep 10; done\"]\n      containers:\n      - name: app\n        image: nginx:1.25\nYAML\nkubectl -n sidecar-learn rollout status deploy/web",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment web ready with native sidecar log-agent (initContainer restartPolicy Always)",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Diagnose & fix: a Job that never completes (sidecar)",
+      "teach": "In a **Job**, a plain extra container that runs forever keeps the Pod alive, so the Job **never completes**. The fix is to make that helper a **native sidecar** (move it to `initContainers` with `restartPolicy: Always`): native sidecars are terminated automatically once the main containers finish, so the Job completes.\n\n**Gotcha:** a Job's pod template is immutable — you can't edit the running Job's containers. Delete and recreate the Job with the sidecar as a native sidecar.",
+      "prompt": "Setup created Job `batch-job` in `sidecar-learn` whose `worker` container does its work and exits, but a second plain container `helper` runs forever — so the Job never completes. Fix it so `batch-job` **completes**, keeping `helper` as a **native sidecar**.\n\nTarget: a Job `batch-job` in `sidecar-learn` reaches `Complete`, and its pod template runs `helper` as a native sidecar (initContainer with `restartPolicy: Always`).",
+      "hint": "`kubectl -n sidecar-learn delete job batch-job`, then recreate it with `worker` under `containers:` and `helper` moved to `initContainers:` with `restartPolicy: Always`. The worker exits → native sidecar is torn down → Job completes.",
+      "solution": "kubectl -n sidecar-learn delete job batch-job --ignore-not-found\ncat <<'YAML' | kubectl apply -f -\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: batch-job\n  namespace: sidecar-learn\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      initContainers:\n      - name: helper\n        image: busybox:1.36\n        restartPolicy: Always\n        command: [\"sh\",\"-c\",\"while true; do echo helping; sleep 5; done\"]\n      containers:\n      - name: worker\n        image: busybox:1.36\n        command: [\"sh\",\"-c\",\"echo working; sleep 5; echo done\"]\nYAML\nkubectl -n sidecar-learn wait --for=condition=complete job/batch-job --timeout=90s",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Job batch-job Complete with helper as a native sidecar",
+          "script": "validate/c2.sh",
+          "weightage": 16
+        }
+      ]
+    }
+  ]
+}

@@ -191,6 +191,7 @@ const CURRICULUM = {
     { topic: 'etcd', labs: ['cka-etcd-backup-restore', 'cka-etcd-restore-cutover', 'cka-etcd-manifest-fix'] },
     { topic: 'rbac', labs: ['cka-rbac-basics', 'cka-rbac-sa-leastpriv', 'cka-rbac-csr-binding-fix'] },
     { topic: 'scheduling', labs: ['cka-sched-selectors-taints', 'cka-sched-affinity', 'cka-sched-daemonset-fix'] },
+    { topic: 'workloads', labs: ['cka-workloads-sidecar'] },
     { topic: 'storage', labs: ['cka-storage-static', 'cka-storage-dynamic', 'cka-storage-pvc-fix'] },
     { topic: 'services', label: 'Services & Networking', labs: ['cka-cni-expose', 'cka-cni-fundamentals', 'cka-cni-nodefix'] },
     { topic: 'gateway-api', labs: ['cka-gw-standup', 'cka-gw-routing', 'cka-gw-vs-ingress-fix'] },

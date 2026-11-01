@@ -196,7 +196,9 @@ const CURRICULUM = {
     { topic: 'services', label: 'Services & Networking', labs: ['cka-cni-expose', 'cka-cni-fundamentals', 'cka-ingress', 'cka-cni-nodefix'] },
     { topic: 'network-policy', labs: ['cka-netpol'] },
     { topic: 'gateway-api', labs: ['cka-gw-standup', 'cka-gw-routing', 'cka-gw-vs-ingress-fix'] },
-    { topic: 'multicluster', labs: ['cka-multicluster-contexts', 'cka-multicluster-wrongcluster-fix'] }
+    { topic: 'multicluster', labs: ['cka-multicluster-contexts', 'cka-multicluster-wrongcluster-fix'] },
+    { topic: 'crd', labs: ['cka-crd'] },
+    { topic: 'helm-kustomize', labs: ['cka-helm'] }
   ],
   CKS: [
     { topic: 'hardening', labs: ['cks-kubebench-run', 'cks-kubebench-remediate', 'cks-kubebench-fix', 'cks-hardening-controlplane', 'cks-hardening-rbac', 'cks-hardening-rbac-fix', 'cks-apparmor-confine', 'cks-apparmor-stricter-fix', 'cks-ingress-tls-terminate', 'cks-ingress-tls-rotate-fix'] },

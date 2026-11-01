@@ -1,0 +1,43 @@
+{
+  "id": "cka-crd",
+  "name": "Install a CRD and use a custom resource",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture (extend the API). A CustomResourceDefinition teaches the apiserver a new kind; once Established, you create and manage custom resources like any built-in. Install a CRD, then create a custom resource of that new kind. This is the 'install an operator's CRDs, then drive it with CRs' skill.",
+  "certs": ["CKA"],
+  "topics": ["crd"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Install a CustomResourceDefinition",
+      "teach": "A **CRD** registers a new API type. Key fields: `group`, `names` (kind/plural/singular), `scope` (`Namespaced`/`Cluster`), and `versions[]` each with `served`, `storage`, and an OpenAPI `schema`. Applying it makes the apiserver serve `kubectl get <plural>`.\n\n**Gotcha:** the CRD `metadata.name` MUST be `<plural>.<group>`. After apply, the CRD needs a moment to reach `Established=True` before you can create CRs.",
+      "prompt": "Install a **Namespaced** CRD for kind `Widget` in group `example.com`, version `v1`: plural `widgets`, singular `widget`, shortName `wd`, with a spec field `size` (string). The CRD's name must be `widgets.example.com`.\n\nTarget: CRD `widgets.example.com` exists and reaches condition `Established=True`.",
+      "hint": "`metadata.name: widgets.example.com`; `spec.group: example.com`; `spec.scope: Namespaced`; `spec.names: {kind: Widget, plural: widgets, singular: widget, shortNames: [wd]}`; one version v1 `served: true, storage: true` with `schema.openAPIV3Schema` of type object containing `spec.properties.size: {type: string}`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata: { name: widgets.example.com }\nspec:\n  group: example.com\n  scope: Namespaced\n  names: { kind: Widget, plural: widgets, singular: widget, shortNames: [wd] }\n  versions:\n  - name: v1\n    served: true\n    storage: true\n    schema:\n      openAPIV3Schema:\n        type: object\n        properties:\n          spec:\n            type: object\n            properties:\n              size: { type: string }\nYAML\nkubectl get crd widgets.example.com",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "CRD widgets.example.com Established (Namespaced, group example.com, v1)",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Create a custom resource",
+      "teach": "Once the CRD is Established, custom resources use `apiVersion: <group>/<version>` and the CRD's `kind`. They live in a namespace (for Namespaced CRDs) and you manage them with normal `kubectl` verbs, including the shortName.\n\n**Gotcha:** the CR's `apiVersion` is `example.com/v1` (group/version), NOT `v1`. Fields not in the CRD schema are rejected (structural schema).",
+      "prompt": "In namespace `crd-learn`, create a `Widget` named `gadget` with `spec.size: large`.\n\nTarget: a Widget `gadget` exists in `crd-learn` with `spec.size == large` (visible via `kubectl -n crd-learn get wd`).",
+      "hint": "`apiVersion: example.com/v1`, `kind: Widget`, `metadata.name: gadget`, `spec.size: large`. Apply into namespace crd-learn.",
+      "solution": "kubectl create namespace crd-learn 2>/dev/null\ncat <<'YAML' | kubectl apply -f -\napiVersion: example.com/v1\nkind: Widget\nmetadata: { name: gadget, namespace: crd-learn }\nspec:\n  size: large\nYAML\nkubectl -n crd-learn get widgets",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Widget gadget exists in crd-learn with spec.size=large",
+          "script": "validate/c2.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

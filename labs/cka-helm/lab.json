@@ -1,0 +1,43 @@
+{
+  "id": "cka-helm",
+  "name": "Helm: install & upgrade a release",
+  "type": "learn",
+  "objective": "CKA › Cluster Architecture (package management). Helm installs a chart as a named release and tracks revisions; values (via --set or a values file) parameterize the manifests. Install a release with a custom value, then upgrade it to change that value. Graded on the Kubernetes objects Helm renders.",
+  "certs": ["CKA"],
+  "topics": ["helm-kustomize"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Install a Helm release",
+      "teach": "`helm install <release> <chart>` renders a chart's templates with its **values** and applies them as a tracked **release**. `--set key=value` overrides a value on the fly; `-n <ns>` targets a namespace. `helm create <name>` scaffolds a ready-to-install chart (a Deployment+Service whose replica count comes from `replicaCount`).\n\n**Gotcha:** Helm labels everything it manages with `app.kubernetes.io/instance: <release>` and `managed-by: Helm` — that's how you (and graders) find a release's objects. The release name is namespaced-unique.",
+      "prompt": "Using Helm, install a release named `web` into namespace `helm-learn` with **2 replicas** (`replicaCount=2`). Scaffold a chart with `helm create <name>` if you need one.\n\nTarget: a Helm-managed Deployment (label `app.kubernetes.io/instance=web`) exists in `helm-learn` with `spec.replicas = 2`.",
+      "hint": "`helm create app` then `helm install web ./app -n helm-learn --create-namespace --set replicaCount=2`. Verify: `helm -n helm-learn list` and `kubectl -n helm-learn get deploy -l app.kubernetes.io/instance=web`.",
+      "solution": "helm create app\nhelm install web ./app -n helm-learn --create-namespace --set replicaCount=2\nhelm -n helm-learn list\nkubectl -n helm-learn get deploy -l app.kubernetes.io/instance=web",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Helm release web installed in helm-learn with 2 replicas",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Upgrade the release (change a value)",
+      "teach": "`helm upgrade <release> <chart> --set key=value` applies a new revision with changed values; `helm rollback <release> <rev>` returns to a prior one. Each upgrade bumps the release **revision**.\n\n**Gotcha:** `helm upgrade` needs the chart again (same `./app` or repo ref) — it's not `kubectl edit`. Use `--reuse-values` to keep previously-set overrides you're not changing.",
+      "prompt": "Upgrade the `web` release to **3 replicas** (`replicaCount=3`), keeping it a Helm upgrade (new revision).\n\nTarget: the `web` Deployment in `helm-learn` now has `spec.replicas = 3`.",
+      "hint": "`helm upgrade web ./app -n helm-learn --set replicaCount=3`. Check the bump: `helm -n helm-learn history web` and `kubectl -n helm-learn get deploy -l app.kubernetes.io/instance=web`.",
+      "solution": "helm upgrade web ./app -n helm-learn --set replicaCount=3\nhelm -n helm-learn history web\nkubectl -n helm-learn get deploy -l app.kubernetes.io/instance=web -o jsonpath='{.items[0].spec.replicas}'; echo",
+      "verification": [
+        {
+          "id": "1",
+          "description": "web release upgraded to 3 replicas",
+          "script": "validate/c2.sh",
+          "weightage": 12
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "cka-sched-resources",
+  "name": "Pod resources: requests, limits & scheduling",
+  "type": "learn",
+  "troubleshooting": true,
+  "objective": "CKA › Workloads & Scheduling. Resource requests drive scheduling (the scheduler places a pod only where its requests fit a node's allocatable); limits cap usage; together they set the pod's QoS class. Set requests/limits on a workload, then diagnose a pod stuck Pending because its request exceeds every node.",
+  "certs": ["CKA"],
+  "topics": ["scheduling"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Set requests and limits (QoS)",
+      "teach": "`resources.requests` is what the scheduler **reserves** on a node (and what it schedules against); `resources.limits` is the hard cap the kubelet enforces (CPU throttled, memory OOM-killed). Requests ≠ limits ⇒ the pod's **QoS class is `Burstable`** (equal requests==limits for every resource ⇒ `Guaranteed`; none set ⇒ `BestEffort`).\n\n**Gotcha:** CPU is **compressible** (over-limit = throttled); memory is **not** (over-limit = OOMKilled). The scheduler only looks at **requests**, never limits.",
+      "prompt": "In namespace `resources-learn`, create a Deployment `rated` (1 replica, image `nginx:1.25`) whose container `web` sets requests `cpu=100m, memory=64Mi` and limits `cpu=250m, memory=128Mi`.\n\nTarget: Deployment `rated` is ready; its container has those exact requests/limits, giving QoS class `Burstable`.",
+      "hint": "Put `resources: { requests: {cpu: 100m, memory: 64Mi}, limits: {cpu: 250m, memory: 128Mi} }` on the container. Check QoS with `kubectl -n resources-learn get pod -l app=rated -o jsonpath='{.items[0].status.qosClass}'`.",
+      "solution": "kubectl create namespace resources-learn 2>/dev/null\ncat <<'YAML' | kubectl apply -f -\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: rated, namespace: resources-learn }\nspec:\n  replicas: 1\n  selector: { matchLabels: { app: rated } }\n  template:\n    metadata: { labels: { app: rated } }\n    spec:\n      containers:\n      - name: web\n        image: nginx:1.25\n        resources:\n          requests: { cpu: 100m, memory: 64Mi }\n          limits:   { cpu: 250m, memory: 128Mi }\nYAML\nkubectl -n resources-learn rollout status deploy/rated",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment rated ready with requests 100m/64Mi, limits 250m/128Mi (QoS Burstable)",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Diagnose & fix: a pod stuck Pending (request too big)",
+      "teach": "A pod whose CPU/memory **request exceeds every node's allocatable** can never be placed — it sits `Pending` with a scheduler event `0/N nodes are available: Insufficient cpu`. The fix is on the workload: lower the request to something a node can satisfy.\n\n**Gotcha:** this is a **request** problem, not limits — the scheduler rejects it before it ever runs. `kubectl describe pod` Events name the exact shortfall.",
+      "prompt": "Setup created Deployment `hog` in `resources-learn` requesting `cpu: \"6\"` — more than any node's 4 allocatable CPUs — so its pod is `Pending`. Diagnose and fix it so `hog` runs (keep it reasonable, e.g. `cpu: 200m`).\n\nTarget: Deployment `hog` has 1 ready replica and its container's CPU request is ≤ 1 core.",
+      "hint": "`kubectl -n resources-learn describe pod -l app=hog` → 'Insufficient cpu'. Lower the request: `kubectl -n resources-learn patch deploy hog --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/requests/cpu\",\"value\":\"200m\"}]'` (or edit the Deployment).",
+      "solution": "kubectl -n resources-learn patch deploy hog --type=json \\\n  -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/resources/requests/cpu\",\"value\":\"200m\"}]'\nkubectl -n resources-learn rollout status deploy/hog",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment hog scheduled & ready after reducing its CPU request",
+          "script": "validate/c2.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

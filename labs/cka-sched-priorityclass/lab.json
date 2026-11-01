@@ -1,0 +1,44 @@
+{
+  "id": "cka-sched-priorityclass",
+  "name": "PriorityClass & preemption",
+  "type": "learn",
+  "objective": "CKA › Workloads & Scheduling. A PriorityClass stamps pods with a priority value; the scheduler places higher-priority pods first and, on a full node, will PREEMPT (evict) lower-priority pods to make room. Create PriorityClasses and use them, then watch a high-priority pod preempt low-priority ballast on a full node.",
+  "certs": ["CKA"],
+  "topics": ["scheduling"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Create PriorityClasses and use one",
+      "teach": "A **PriorityClass** is a cluster-scoped object mapping a name to an integer `value` (higher = more important). A pod opts in with `priorityClassName`; the admission controller copies the number into the pod's `.spec.priority`. The scheduler orders the pending queue by priority and uses it to decide preemption.\n\n**Gotcha:** `globalDefault: true` applies a PriorityClass to pods that don't name one (only one default allowed). Values above 1,000,000,000 are reserved for system-critical classes.",
+      "prompt": "Create two PriorityClasses: `high-priority` (value `1000000`) and `low-priority` (value `100`). Then in namespace `priority-learn` run pod `important` (image `nginx:1.25`) with `priorityClassName: high-priority`.\n\nTarget: PriorityClass `high-priority` has value 1000000; pod `important` uses it and its `.spec.priority` is `1000000`.",
+      "hint": "`kubectl create priorityclass high-priority --value=1000000` and `--value=100` for low-priority. Then a pod with `spec.priorityClassName: high-priority`. Check: `kubectl -n priority-learn get pod important -o jsonpath='{.spec.priority}'`.",
+      "solution": "kubectl create priorityclass high-priority --value=1000000 2>/dev/null\nkubectl create priorityclass low-priority --value=100 2>/dev/null\nkubectl create namespace priority-learn 2>/dev/null\ncat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: important, namespace: priority-learn }\nspec:\n  priorityClassName: high-priority\n  containers:\n  - name: web\n    image: nginx:1.25\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "PriorityClass high-priority=1000000 and pod important uses it (.spec.priority=1000000)",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Preemption: evict low-priority to fit high",
+      "teach": "When a higher-priority pod can't schedule because a node is full, the scheduler **preempts** — it evicts one or more lower-priority pods on a node to make room, then places the high-priority pod. Preempted pods are deleted (and recreated by their controller, where they may sit Pending).\n\n**Gotcha:** preemption only fires when there's genuinely no room — the scheduler picks the fewest/lowest-priority victims. A pod can opt out of causing preemption with `preemptionPolicy: Never` (it still schedules by priority, just never evicts others).",
+      "prompt": "Setup pinned two low-priority `ballast` pods (PriorityClass `demo-low`) onto `$W1`, filling it. Create a high-priority pod `vip` in `priority-learn` (image `nginx:1.25`, `priorityClassName: demo-high`, `nodeSelector prio-demo=yes`, CPU request `1000m`) — the scheduler must preempt a ballast pod to place it.\n\nTarget: `vip` is `Running` on `$W1`, and the scheduler preempted at least one `ballast` pod (fewer remain running).",
+      "hint": "Create `vip` with `priorityClassName: demo-high`, `nodeSelector: {prio-demo: yes}`, and `resources.requests.cpu: 1000m`. The node is full of demo-low ballast, so the scheduler evicts one to fit vip. Watch: `kubectl -n priority-learn get pods -w`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: v1\nkind: Pod\nmetadata: { name: vip, namespace: priority-learn, labels: { role: vip } }\nspec:\n  priorityClassName: demo-high\n  nodeSelector: { prio-demo: \"yes\" }\n  containers:\n  - name: web\n    image: nginx:1.25\n    resources: { requests: { cpu: 1000m } }\nYAML\nkubectl -n priority-learn get pods -o wide -w",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "vip Running on $W1 after preempting a low-priority ballast pod",
+          "script": "validate/c2.sh",
+          "weightage": 16
+        }
+      ]
+    }
+  ]
+}

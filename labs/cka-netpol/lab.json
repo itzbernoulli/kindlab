@@ -1,0 +1,43 @@
+{
+  "id": "cka-netpol",
+  "name": "NetworkPolicy: default-deny + allow",
+  "type": "learn",
+  "objective": "CKA › Services & Networking. NetworkPolicies are allowlists: once a pod is selected by any policy for a direction, everything not explicitly allowed is denied. Build a default-deny-ingress baseline, then open a precise hole (from a label, on a port). Graded on the policy spec (kindnet stores but does not enforce NetworkPolicy — the spec is what counts, same as the real exam's object checks).",
+  "certs": ["CKA"],
+  "topics": ["network-policy"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Default-deny all ingress",
+      "teach": "A NetworkPolicy that selects pods and lists `policyTypes: [Ingress]` with **no ingress rules** denies all inbound traffic to those pods. Select every pod with an **empty** `podSelector: {}`.\n\n**Gotcha:** pods are `default-allow` until *some* policy selects them for a direction — then they become default-deny for that direction. `policyTypes` controls which directions the policy governs; omit `ingress:` entirely to allow nothing in.",
+      "prompt": "In namespace `netpol-learn`, create a NetworkPolicy `default-deny` that applies to **all pods** and denies **all ingress**.\n\nTarget: `default-deny` has an empty `podSelector`, `policyTypes: [Ingress]`, and no `ingress` rules.",
+      "hint": "`podSelector: {}` selects all pods; `policyTypes: [Ingress]`; and do NOT add any `ingress:` entries (that's what makes it deny-all-in).",
+      "solution": "kubectl create namespace netpol-learn 2>/dev/null\ncat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: { name: default-deny, namespace: netpol-learn }\nspec:\n  podSelector: {}\n  policyTypes: [Ingress]\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "default-deny selects all pods, policyTypes [Ingress], no ingress rules",
+          "script": "validate/c1.sh",
+          "weightage": 12
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Allow from a label on a port",
+      "teach": "On top of default-deny you open precise holes. An ingress rule with `from.podSelector` + `ports` allows only matching sources to specific ports. Multiple `from` peers in one rule are OR'ed; `podSelector` + `namespaceSelector` in the **same** peer entry are AND'ed.\n\n**Gotcha:** NetworkPolicy ingress `from` selects **source pods**, while the policy's top-level `podSelector` selects the **destination** pods the rule protects. Mixing them up is the classic error.",
+      "prompt": "In `netpol-learn`, create a NetworkPolicy `allow-client` that allows ingress to pods labeled `app=web` **only** from pods labeled `role=client`, on TCP port `80`.\n\nTarget: `allow-client` selects `app=web`, with an ingress rule whose `from` is `podSelector role=client` and `ports` is TCP/80.",
+      "hint": "Top-level `podSelector.matchLabels.app: web` (destination). One ingress rule: `from: [{podSelector: {matchLabels: {role: client}}}]`, `ports: [{protocol: TCP, port: 80}]`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: { name: allow-client, namespace: netpol-learn }\nspec:\n  podSelector: { matchLabels: { app: web } }\n  policyTypes: [Ingress]\n  ingress:\n  - from:\n    - podSelector: { matchLabels: { role: client } }\n    ports:\n    - protocol: TCP\n      port: 80\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "allow-client: dest app=web, from podSelector role=client, TCP/80",
+          "script": "validate/c2.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

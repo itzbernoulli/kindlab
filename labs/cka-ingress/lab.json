@@ -1,0 +1,43 @@
+{
+  "id": "cka-ingress",
+  "name": "Ingress: host + path routing",
+  "type": "learn",
+  "objective": "CKA › Services & Networking. An Ingress is L7 HTTP routing rules (host + path → Service:port) realized by an ingress controller via an IngressClass. Create a host rule to one Service, then add path-based routing to a second. Graded on the Ingress spec (this bench has no ingress controller; the object is what the exam checks).",
+  "certs": ["CKA"],
+  "topics": ["services"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Route a host to a Service",
+      "teach": "An **Ingress** maps HTTP `host` + `path` to a backend `Service:port`. `spec.ingressClassName` picks which controller implements it. A `pathType` of `Prefix` matches by path prefix; `Exact` matches the whole path.\n\n**Gotcha:** Ingress routes to a **Service**, not pods directly — the Service must exist and have endpoints. `kubectl create ingress` is the fast path: `--rule='host/path=svc:port'`.",
+      "prompt": "The Services `web` and `api` (both port 80) already exist in `ingress-learn`. Create an Ingress `shop` (ingressClassName `nginx`) that routes host `shop.example.com` path `/` (pathType `Prefix`) to Service `web:80`.\n\nTarget: Ingress `shop` has ingressClassName `nginx` and a rule host=shop.example.com, path `/` Prefix → web:80.",
+      "hint": "`kubectl -n ingress-learn create ingress shop --class=nginx --rule='shop.example.com/*=web:80'` (the `/*` gives pathType Prefix). Or write the YAML with `pathType: Prefix` and `backend.service.name: web`.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: shop, namespace: ingress-learn }\nspec:\n  ingressClassName: nginx\n  rules:\n  - host: shop.example.com\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend:\n          service:\n            name: web\n            port:\n              number: 80\nYAML",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Ingress shop: class nginx, host shop.example.com path / Prefix -> web:80",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Add path-based routing",
+      "teach": "A single host can fan out by path: add another path entry under the same host routing to a different Service. The controller matches the most specific path first.\n\n**Gotcha:** `Prefix` `/api` matches `/api` and `/api/...`; ordering in the manifest doesn't decide precedence — longest-matching path wins at request time.",
+      "prompt": "Extend Ingress `shop`: under host `shop.example.com`, add path `/api` (pathType `Prefix`) routing to Service `api:80` (keep the `/` → web:80 rule).\n\nTarget: Ingress `shop` has both paths under shop.example.com — `/` → web:80 and `/api` → api:80.",
+      "hint": "Edit the Ingress and add a second `paths` entry: `path: /api, pathType: Prefix, backend.service.name: api, port 80`. `kubectl -n ingress-learn edit ingress shop` or re-apply the full YAML with both paths.",
+      "solution": "cat <<'YAML' | kubectl apply -f -\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: shop, namespace: ingress-learn }\nspec:\n  ingressClassName: nginx\n  rules:\n  - host: shop.example.com\n    http:\n      paths:\n      - path: /\n        pathType: Prefix\n        backend: { service: { name: web, port: { number: 80 } } }\n      - path: /api\n        pathType: Prefix\n        backend: { service: { name: api, port: { number: 80 } } }\nYAML",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Ingress shop has /api Prefix -> api:80 alongside / -> web:80",
+          "script": "validate/c2.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

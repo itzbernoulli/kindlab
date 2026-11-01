@@ -1,0 +1,45 @@
+{
+  "id": "cka-hpa",
+  "name": "HorizontalPodAutoscaler",
+  "type": "learn",
+  "troubleshooting": true,
+  "objective": "CKA › Workloads & Scheduling. An HPA scales a Deployment's replicas between min and max to hold a target metric (e.g. CPU %). It reads pod metrics and compares usage to the pod's resource REQUEST — so the target workload must declare a CPU request or the HPA reports <unknown>. Create an HPA, then fix one stuck at <unknown>. Graded on the HPA object and the target's request (this bench has no metrics-server, so live scaling isn't graded — the exam checks the object).",
+  "certs": ["CKA"],
+  "topics": ["workloads"],
+  "questions": [
+    {
+      "id": "1",
+      "title": "Autoscale a Deployment on CPU",
+      "teach": "An **HPA** targets a workload (`scaleTargetRef`) and keeps a metric near a target by adjusting replicas within `[minReplicas, maxReplicas]`. For CPU utilization it computes `usage / request` per pod — so the **target Deployment must set a CPU request**. The fast path is `kubectl autoscale deploy <name> --cpu-percent=<n> --min=<a> --max=<b>`.\n\n**Gotcha:** CPU `averageUtilization` is a **percent of the request**, not millicores. No request on the pods ⇒ the HPA can't compute ⇒ targets show `<unknown>` and it won't scale.",
+      "prompt": "In namespace `hpa-learn`, Deployment `web` (nginx, CPU request `100m`) already exists. Create a HorizontalPodAutoscaler `web` targeting it: min `2`, max `5`, CPU average utilization `70%`.\n\nTarget: HPA `web` scales Deployment `web` with minReplicas 2, maxReplicas 5, CPU target 70%.",
+      "hint": "`kubectl -n hpa-learn autoscale deployment web --cpu-percent=70 --min=2 --max=5`. Check: `kubectl -n hpa-learn get hpa web`.",
+      "solution": "kubectl -n hpa-learn autoscale deployment web --cpu-percent=70 --min=2 --max=5\nkubectl -n hpa-learn get hpa web",
+      "setup": "setup/q0_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "HPA web -> Deployment web, min 2, max 5, CPU 70%",
+          "script": "validate/c1.sh",
+          "weightage": 14
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Diagnose & fix: HPA stuck at <unknown>",
+      "teach": "An HPA whose CPU target reads `<unknown>` almost always means the **target pods have no CPU request** (so utilization can't be computed). The fix is on the **Deployment**: add a CPU request to its container; the HPA then reads metrics and can scale.\n\n**Gotcha:** fix the Deployment's pod template (`resources.requests.cpu`), not the HPA. (A truly missing metrics-server also causes `<unknown>`, but on the exam the cause is the missing request.)",
+      "prompt": "Setup created Deployment `api` (no CPU request) and HPA `api` targeting it — so the HPA can't compute utilization (`<unknown>`). Fix it so the HPA can work: give `api`'s container a CPU request of `100m`.\n\nTarget: Deployment `api`'s container has `resources.requests.cpu` set (e.g. `100m`), and HPA `api` still targets it.",
+      "hint": "`kubectl -n hpa-learn set resources deploy api --requests=cpu=100m` (or edit the Deployment). The HPA `api` already exists; you're fixing the target's missing request.",
+      "solution": "kubectl -n hpa-learn set resources deployment api --requests=cpu=100m\nkubectl -n hpa-learn rollout status deploy/api\nkubectl -n hpa-learn get hpa api",
+      "setup": "setup/q2_setup.sh",
+      "verification": [
+        {
+          "id": "1",
+          "description": "Deployment api now has a CPU request; HPA api targets it",
+          "script": "validate/c2.sh",
+          "weightage": 14
+        }
+      ]
+    }
+  ]
+}

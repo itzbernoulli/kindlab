@@ -134,6 +134,41 @@ function ensureSecond() {
   mergeKube();
 }
 
+// ---- scratch clusters (per-lab throwaway clusters for destructive drills) ----
+// A lab may declare `scratchCluster` (a name string, or {name, image, config}) to
+// run its hands-on work on its OWN kind cluster, so a destructive drill (etcd
+// restore-cutover, kubeadm upgrade) can never touch the main cluster/dashboard.
+// We provision it here on the UNTIMED path — lab setup scripts are capped at 120s,
+// too short for `kind create` — fresh on each Start, and write its kubeconfig to
+// .state/<name>.kubeconfig for the lab's scripts and the learner to target.
+function scratchName(lab) {
+  const s = lab && lab.scratchCluster;
+  return s ? (typeof s === 'string' ? s : s.name) : null;
+}
+function ensureScratch(lab) {
+  const name = scratchName(lab);
+  if (!name) return;
+  const sc = lab.scratchCluster;
+  const image = (typeof sc === 'object' && sc.image) ? ` --image ${sc.image}` : '';
+  const cfg = (typeof sc === 'object' && sc.config) ? ` --config ${path.join(ROOT, sc.config)}` : '';
+  const create = cfg ? `kind create cluster${image}${cfg}` : `kind create cluster --name ${name}${image}`;
+  ensureState();
+  console.log(paint(`  Provisioning throwaway cluster '${name}' for this lab (isolated from the main cluster)...`, 'cyan'));
+  try {
+    execSync(`kind delete cluster --name ${name} >/dev/null 2>&1; ${create}`, { stdio: 'inherit', timeout: 300000 });
+    execSync(`kind get kubeconfig --name ${name} > ${path.join(STATE_DIR, name + '.kubeconfig')}`, { timeout: 30000 });
+  } catch (e) {
+    console.log(paint(`  ⚠ could not provision '${name}': ${String(e.message || e).split('\n')[0]}`, 'yellow'));
+  }
+}
+function deleteScratchClusters() {
+  const existing = cap('kind get clusters 2>/dev/null').out.split('\n').map(s => s.trim());
+  const names = [...new Set(loadLabs().map(scratchName).filter(Boolean))];
+  let n = 0;
+  for (const name of names) if (existing.includes(name)) { sh(`kind delete cluster --name ${name}`); n++; }
+  return n;
+}
+
 function loadLabs() {
   if (!fs.existsSync(LABS_DIR)) return [];
   return fs.readdirSync(LABS_DIR)
@@ -228,6 +263,7 @@ function cmdDown() {
   let any = false;
   if (clusterExists()) { sh(`kind delete cluster --name ${CLUSTER}`); any = true; }
   if (secondExists()) { sh(`kind delete cluster --name ${SECOND}`); any = true; }
+  if (deleteScratchClusters() > 0) any = true;   // per-lab throwaway clusters
   if (!any) console.log('Nothing to delete.');
 }
 
@@ -283,6 +319,7 @@ function cmdStart(id, minutes) {
   requireCluster();
   const lab = getLab(id);
   if (lab.needsSecondCluster) ensureSecond();
+  if (lab.scratchCluster) ensureScratch(lab);
   if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break
   console.log(paint(`\nPreparing '${lab.name}'...`, 'cyan'));
   // run q0 (optional global setup) then each question's setup
@@ -335,6 +372,7 @@ function cmdLearn(id) {
   requireCluster();
   const lab = getLab(id);
   if (lab.needsSecondCluster) ensureSecond();
+  if (lab.scratchCluster) ensureScratch(lab);
   if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break
   console.log(paint(`\nPreparing lesson '${lab.name}'...`, 'cyan'));
   ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
@@ -593,6 +631,7 @@ function cmdServe(port = 8080) {
         if (!clusterExists()) return sendJSON(res, { error: 'cluster down — run `kindlab up`' }, 409);
         if (lab.needsSecondCluster) ensureSecond(); else mergeKube();
         if (!apiHealthy()) return sendJSON(res, { error: 'Cluster API is not responding yet — it may be recovering from load. Wait ~30s and press Start again.' }, 503);
+        if (lab.scratchCluster) ensureScratch(lab);   // provision this lab's throwaway cluster (untimed)
         if (lab.id !== 'learn-cka-clusterops') healControlPlane();   // undo a leftover cluster-ops break so pods can schedule
         ['setup/q0_setup.sh', ...lab.questions.map(q => q.setup).filter(Boolean)].forEach(s => runScript(lab, s));
         const minutes = Number(url.searchParams.get('minutes') || 0);

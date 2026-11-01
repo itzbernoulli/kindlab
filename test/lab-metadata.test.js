@@ -35,6 +35,19 @@ test('byCertTopic places every cert lab exactly once, with no duplicates per cer
     }
   }
 });
+test('eli5/deepDive explainers, when present, are non-empty inline markdown', () => {
+  for (const l of labs) {
+    for (const q of l.questions || []) {
+      for (const field of ['eli5', 'deepDive']) {
+        if (field in q) {
+          assert.strictEqual(typeof q[field], 'string', `${l.id} Q${q.id} ${field} must be an inline string`);
+          assert.ok(q[field].trim().length > 0, `${l.id} Q${q.id} ${field} is empty`);
+          assert.ok(!q[field].endsWith('.md'), `${l.id} Q${q.id} ${field} looks like a file path — inline the content instead`);
+        }
+      }
+    }
+  }
+});
 test('CURRICULUM references only real lab ids, each listed once', () => {
   const ids = new Set(labs.map(l => l.id));
   const seen = new Set();

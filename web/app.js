@@ -302,6 +302,29 @@ window.tog = function (btn, showLabel, hideLabel) {
   box.style.display = open ? 'block' : 'none';
   btn.textContent = open ? hideLabel : showLabel;
 };
+// Open a full-page explainer (ELI5 or Deep dive) for one lesson step, with a
+// Back button that returns to the lesson. Content is inline markdown on the lab.
+window.openExplainer = async function (id, qid, kind) {
+  const lab = await api('/api/lab/' + id);
+  const q = (lab.questions || []).find(x => String(x.id) === String(qid));
+  if (!q) return;
+  const md = kind === 'eli5' ? q.eli5 : q.deepDive;
+  const badge = kind === 'eli5' ? '🧒 Explain like I’m 5' : '📖 Deep dive';
+  const cls = kind === 'eli5' ? 'explain-eli5' : 'explain-deep';
+  const panel = $('#panel');
+  panel.innerHTML = `
+    <div class="explain-page ${cls}">
+      <button class="btn-answers explain-back" id="xpBack">← Back to lesson</button>
+      <div class="explain-eyebrow">${esc(lab.name)} · Step ${esc(q.id)}: ${esc(q.title)}</div>
+      <span class="explain-badge">${badge}</span>
+      <div class="explain-body">${marked.parse(md || '_No explanation yet._')}</div>
+      <button class="btn-answers explain-back" id="xpBackBottom">← Back to lesson</button>
+    </div>`;
+  const back = () => openLab(id);
+  $('#xpBack').onclick = back;
+  $('#xpBackBottom').onclick = back;
+  window.scrollTo(0, 0);
+};
 async function renderLearn(lab) {
   const id = lab.id;
   curLearnId = id;
@@ -336,6 +359,8 @@ async function renderLearn(lab) {
         ${q.teach ? `<div class="lesson">${marked.parse(q.teach)}</div>` : ''}
         <div class="task-prompt">${marked.parse('**▸ Your turn:** ' + q.prompt)}</div>
         <div class="learn-actions">
+          ${q.eli5 ? `<button class="btn-answers mini eli5-btn" onclick="openExplainer('${id}','${esc(q.id)}','eli5')">🧒 Explain like I’m 5</button>` : ''}
+          ${q.deepDive ? `<button class="btn-answers mini deep-btn" onclick="openExplainer('${id}','${esc(q.id)}','deepDive')">📖 Deep dive</button>` : ''}
           ${q.hint ? `<button class="btn-answers mini" onclick="window.tog(this,'💡 Hint','🙈 Hide hint')">💡 Hint</button><div class="hint" style="display:none">${marked.parse(q.hint)}</div>` : ''}
           ${q.solution ? `<button class="btn-answers mini" onclick="window.tog(this,'Reveal solution','🙈 Hide solution')">Reveal solution</button><div class="solution" style="display:none">${marked.parse('```bash\n' + q.solution + '\n```')}</div>` : ''}
         </div>

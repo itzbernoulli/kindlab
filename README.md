@@ -4,7 +4,7 @@ A **kind-based CKA / CKAD / CKS practice bench** with real node access, structur
 
 Why it exists: hosted simulators run a single managed cluster with **no node access**, so a large slice of CKA/CKS (etcd, control-plane repair, kubelet, static pods, kube-bench, audit…) can't be graded. KindLab runs a **multi-node `kind` cluster** and its setup/validation scripts `docker exec` into the nodes — so those tasks become real, gradable labs. It also has **learn** labs (step-by-step lessons) and **timed exam / mock** modes (scored, pass/fail).
 
-The lab collection is **topic-first, cert-aware**: labs are organized by topic (cluster operations, RBAC, storage, …), with exams and mocks grouped by cert (CKAD, CKA, CKS). You can browse by topic (default) or switch to cert view.
+The lab collection is **cert-first, topic-sequenced**: each cert (CKAD, CKA, CKS) is a shelf, and within it the labs are grouped by topic and ordered as a learning path — foundations first, the diagnose-and-fix (troubleshooting) labs last. Exams and timed mocks live under their cert. Every **learn** lab step also carries two study layers you can open full-page: **🧒 Explain like I'm 5** and **📖 Deep dive**.
 
 - **📘 Learn labs** — each step has a lesson, a guided task, a hint, and a reveal-solution. Self-paced; progress is "steps mastered." Master a topic by repetition.
 - **📝 Exam labs** — scored & timed, no hand-holding. Prove what you learned.
